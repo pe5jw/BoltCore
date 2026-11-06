@@ -1,0 +1,9 @@
+# BoltCore — gebouwde frontend (niet in repo, wordt door install gekopieerd)
+bolt-web/
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini
