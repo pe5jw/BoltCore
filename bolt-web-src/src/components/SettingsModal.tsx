@@ -5,6 +5,7 @@ import { DvkSettingsPanel } from './DvkSettingsPanel'
 import { CwSettingsPanel } from './CwSettingsPanel'
 import { THEMES, SPECTRUM_COLORS } from '../themes'
 import { useTheme } from '../ThemeContext'
+import { useInterface } from '../InterfaceContext'
 
 interface Props {
   onClose: () => void
@@ -15,6 +16,7 @@ const CFC_FREQS = [50, 100, 200, 500, 1000, 1500, 2000, 2500, 3000, 5000]
 
 export function SettingsModal({ onClose }: Props) {
   const { theme, setTheme, showLogo, setShowLogo, logoBrightness, setLogoBrightness, wfPalette, setWfPalette } = useTheme()
+  const { interfaceMode, setInterfaceMode } = useInterface()
   const [pos, setPos] = useState<{x: number, y: number} | null>(null)
   const dragRef = useRef<{ dx: number, dy: number } | null>(null)
   const [catEnabled, setCatEnabled] = useState(false)
@@ -62,7 +64,7 @@ export function SettingsModal({ onClose }: Props) {
   const [cfcStatus, setCfcStatus] = useState('')
     const [cfcBands, setCfcBands] = useState(CFC_FREQS.map(f => ({ freqHz: f, compLevelDb: 0, postGainDb: 0 })))
   useEffect(() => {
-    fetch('/api/state').then(r => r.json()).then(s => {
+    fetch('/api/radio/state').then(r => r.json()).then(s => {
       if (s.cfc) {
         setCfcEnabled(s.cfc.enabled ?? false)
         setCfcPostEq(s.cfc.postEqEnabled ?? false)
@@ -130,27 +132,27 @@ export function SettingsModal({ onClose }: Props) {
             {/* Master arm */}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <span style={{ fontSize: 10, color: 'var(--text-dim)', minWidth: 80 }}>PS AAN/UIT</span>
-              <button onClick={() => { fetch('/api/tx/ps', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Enabled: true, Auto: true, Single: false }) }).then(() => { setPsEnabled(true); setPsStatus('PS actief - AUTO') }) }}
+              <button onClick={() => { fetch('/api/radio/ps', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Enabled: true, Auto: true, Single: false }) }).then(() => { setPsEnabled(true); setPsStatus('PS actief - AUTO') }) }}
                 style={{ fontSize: 10, padding: '3px 12px', borderRadius: 3, cursor: 'pointer', background: psEnabled ? 'var(--accent)' : 'var(--bg-control)', border: psEnabled ? 'none' : '1px solid var(--accent)', color: psEnabled ? 'var(--bg)' : 'var(--accent)' }}>AAN (AUTO)</button>
-              <button onClick={() => { fetch('/api/tx/ps', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Enabled: false, Auto: false, Single: false }) }).then(() => { setPsEnabled(false); setPsStatus('PS uit') }) }}
+              <button onClick={() => { fetch('/api/radio/ps', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Enabled: false, Auto: false, Single: false }) }).then(() => { setPsEnabled(false); setPsStatus('PS uit') }) }}
                 style={{ fontSize: 10, padding: '3px 12px', borderRadius: 3, cursor: 'pointer', background: !psEnabled ? 'var(--bg-control)' : 'var(--bg-control)', border: '1px solid var(--border)', color: !psEnabled ? 'var(--text)' : 'var(--text-dim)' }}>UIT</button>
             </div>
 
             {/* Single calibratie */}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <span style={{ fontSize: 10, color: 'var(--text-dim)', minWidth: 80 }}>KALIBREER</span>
-              <button onClick={() => fetch('/api/tx/ps', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Enabled: true, Auto: false, Single: true }) })}
+              <button onClick={() => fetch('/api/radio/ps', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Enabled: true, Auto: false, Single: true }) })}
                 style={{ fontSize: 10, padding: '3px 12px', borderRadius: 3, cursor: 'pointer', background: 'var(--bg-control)', border: '1px solid var(--accent)', color: 'var(--accent)' }}>EENMALIG</button>
-              <button onClick={() => fetch('/api/tx/ps/reset', { method: 'POST' })}
+              <button onClick={() => fetch('/api/radio/ps/reset', { method: 'POST' })}
                 style={{ fontSize: 10, padding: '3px 12px', borderRadius: 3, cursor: 'pointer', background: 'var(--bg-control)', border: '1px solid var(--border)', color: 'var(--text-dim)' }}>RESET</button>
             </div>
 
             {/* Monitor */}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <span style={{ fontSize: 10, color: 'var(--text-dim)', minWidth: 80 }}>TX MONITOR</span>
-              <button onClick={() => fetch('/api/tx/ps/monitor', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Enabled: true }) })}
+              <button onClick={() => fetch('/api/radio/ps/monitor', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Enabled: true }) })}
                 style={{ fontSize: 10, padding: '3px 12px', borderRadius: 3, cursor: 'pointer', background: 'var(--bg-control)', border: '1px solid var(--accent)', color: 'var(--accent)' }}>POST-PA</button>
-              <button onClick={() => fetch('/api/tx/ps/monitor', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Enabled: false }) })}
+              <button onClick={() => fetch('/api/radio/ps/monitor', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Enabled: false }) })}
                 style={{ fontSize: 10, padding: '3px 12px', borderRadius: 3, cursor: 'pointer', background: 'var(--bg-control)', border: '1px solid var(--border)', color: 'var(--text-dim)' }}>NORMAAL</button>
               <span style={{ fontSize: 9, color: 'var(--text-dim)' }}>TX spectrum bron</span>
             </div>
@@ -159,7 +161,7 @@ export function SettingsModal({ onClose }: Props) {
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <span style={{ fontSize: 10, color: 'var(--text-dim)', minWidth: 80 }}>FEEDBACK ATT</span>
               {[-6,-3,0,3,6,9,12].map(db => (
-                <button key={db} onClick={() => fetch('/api/tx/ps/feedback-attenuation', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Db: db }) })}
+                <button key={db} onClick={() => fetch('/api/radio/ps/feedback-attenuation', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Db: db }) })}
                   style={{ fontSize: 9, padding: '2px 6px', borderRadius: 3, cursor: 'pointer', background: 'var(--bg-control)', border: '1px solid var(--border)', color: 'var(--text-dim)' }}>{db}dB</button>
               ))}
             </div>
@@ -167,9 +169,9 @@ export function SettingsModal({ onClose }: Props) {
             {/* Save/Restore */}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <span style={{ fontSize: 10, color: 'var(--text-dim)', minWidth: 80 }}>CALIBRATIE</span>
-              <button onClick={() => fetch('/api/tx/ps/save', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Filename: 'ps-cal.bin' }) })}
+              <button onClick={() => fetch('/api/radio/ps/save', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Filename: 'ps-cal.bin' }) })}
                 style={{ fontSize: 10, padding: '3px 12px', borderRadius: 3, cursor: 'pointer', background: 'var(--bg-control)', border: '1px solid var(--accent)', color: 'var(--accent)' }}>OPSLAAN</button>
-              <button onClick={() => fetch('/api/tx/ps/restore', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Filename: 'ps-cal.bin' }) })}
+              <button onClick={() => fetch('/api/radio/ps/restore', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Filename: 'ps-cal.bin' }) })}
                 style={{ fontSize: 10, padding: '3px 12px', borderRadius: 3, cursor: 'pointer', background: 'var(--bg-control)', border: '1px solid var(--border)', color: 'var(--text-dim)' }}>HERSTELLEN</button>
             </div>
 
@@ -190,7 +192,7 @@ export function SettingsModal({ onClose }: Props) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div><span style={{ color: 'var(--text-dim)' }}>VERSIE</span> <span style={{ color: 'var(--accent)' }}>{pkg.version}</span></div>
               <div><span style={{ color: 'var(--text-dim)' }}>BRANCH</span> <span style={{ color: 'var(--accent)' }}>bolt-main</span></div>
-              <div><span style={{ color: 'var(--text-dim)' }}>STACK</span> <span style={{ color: 'var(--accent)' }}>station-engine + bolt-web</span></div>
+              <div><span style={{ color: 'var(--text-dim)' }}>STACK</span> <span style={{ color: 'var(--accent)' }}>AnanCore Bolt-Web</span></div>
               <div><span style={{ color: 'var(--text-dim)' }}>RADIO</span> <span style={{ color: 'var(--accent)' }}>HermesLite 2</span></div>
               <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)', fontSize: 9 }}>GPL v2+ — gebaseerd op Zeus SDR</div>
               <div style={{ marginTop: 4 }}>
@@ -243,7 +245,7 @@ export function SettingsModal({ onClose }: Props) {
               ))}
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => { fetch('/api/tx/cfc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config: { enabled: cfcEnabled, postEqEnabled: cfcPostEq, preCompDb: cfcPreComp, prePeqDb: cfcPrePeq, bands: cfcBands } }) }).then(() => { setCfcStatus('ok'); setTimeout(() => setCfcStatus(''), 2000) }).catch(() => setCfcStatus('err')) }} style={{ fontSize: 10, padding: '3px 16px', borderRadius: 3, cursor: 'pointer', background: cfcStatus === 'ok' ? '#2ecc71' : cfcStatus === 'err' ? '#e74c3c' : 'var(--accent)', border: 'none', color: cfcStatus ? '#000' : 'var(--bg)' }}>{cfcStatus === 'ok' ? 'OPGESLAGEN ✓' : cfcStatus === 'err' ? 'FOUT ✗' : 'OPSLAAN'}</button>
+              <button onClick={() => { fetch('/api/radio/cfc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config: { enabled: cfcEnabled, postEqEnabled: cfcPostEq, preCompDb: cfcPreComp, prePeqDb: cfcPrePeq, bands: cfcBands } }) }).then(() => { setCfcStatus('ok'); setTimeout(() => setCfcStatus(''), 2000) }).catch(() => setCfcStatus('err')) }} style={{ fontSize: 10, padding: '3px 16px', borderRadius: 3, cursor: 'pointer', background: cfcStatus === 'ok' ? '#2ecc71' : cfcStatus === 'err' ? '#e74c3c' : 'var(--accent)', border: 'none', color: cfcStatus ? '#000' : 'var(--bg)' }}>{cfcStatus === 'ok' ? 'OPGESLAGEN ✓' : cfcStatus === 'err' ? 'FOUT ✗' : 'OPSLAAN'}</button>
               <button onClick={() => { setCfcBands(CFC_FREQS.map(f => ({ freqHz: f, compLevelDb: 0, postGainDb: 0 }))); setCfcPreComp(0); setCfcPrePeq(0) }} style={{ fontSize: 10, padding: '3px 16px', borderRadius: 3, cursor: 'pointer', background: 'var(--bg-control)', border: '1px solid var(--border)', color: 'var(--text-dim)' }}>RESET</button>
             </div>
             <div style={{ fontSize: 9, color: 'var(--text-dim)', marginTop: 8 }}>CFC = Continuous Frequency Compressor (WDSP)</div>
@@ -280,6 +282,16 @@ export function SettingsModal({ onClose }: Props) {
 
         {/* General tab */}
         {tab === 'general' && <>
+
+          {/* INTERFACE MODE */}
+          <div style={row}>
+            <span style={lbl}>INTERFACE</span>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button onClick={() => setInterfaceMode('desktop')} style={{ fontSize: 10, padding: '2px 10px', borderRadius: 3, cursor: 'pointer', fontFamily: 'var(--font-data)', letterSpacing: 2, background: interfaceMode === 'desktop' ? 'var(--accent)' : 'var(--bg-control)', border: '1px solid var(--border)', color: interfaceMode === 'desktop' ? 'var(--bg)' : 'var(--text-dim)' }}>DESKTOP</button>
+              <button onClick={() => setInterfaceMode('mobile')} style={{ fontSize: 10, padding: '2px 10px', borderRadius: 3, cursor: 'pointer', fontFamily: 'var(--font-data)', letterSpacing: 2, background: interfaceMode === 'mobile' ? 'var(--accent)' : 'var(--bg-control)', border: '1px solid var(--border)', color: interfaceMode === 'mobile' ? 'var(--bg)' : 'var(--text-dim)' }}>MOBILE</button>
+            </div>
+          </div>
+
 
           <div style={row}>
             <span style={lbl}>CONTROLS OVERLAY</span>

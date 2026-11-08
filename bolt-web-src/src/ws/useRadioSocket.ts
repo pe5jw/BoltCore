@@ -66,8 +66,8 @@ export type RadioCommand =
 const DEFAULT_STATE: RadioState = {
   vfoHz: 14200000,
   mode: 'USB',
-  filterLow: -3000,
-  filterHigh: 200,
+  filterLow: 100,
+  filterHigh: 2850,
   txFilterLow: 150,
   txFilterHigh: 2850,
   txFilterLocked: true,
@@ -136,6 +136,7 @@ function parseAudioFrame(buf: ArrayBuffer): { samples: Float32Array; sampleRate:
 }
 
 const DEFAULT_WS_URL = () => `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.hostname}:${window.location.port || "6061"}/ws`
+
 export function useRadioSocket(serverUrl = DEFAULT_WS_URL(), onMidiLearn?: (frame: import('../midi').MidiLearnFrame) => void) {
   const [status, setStatus] = useState<ConnectionStatus>('disconnected')
   const [radioState, setRadioState] = useState<RadioState>(DEFAULT_STATE)
@@ -155,63 +156,73 @@ export function useRadioSocket(serverUrl = DEFAULT_WS_URL(), onMidiLearn?: (fram
   const rxWorkletRef = useRef<AudioWorkletNode | null>(null)
   const rxWorkletReadyRef = useRef(false)
 
-  const scheduleAudio = useCallback((samples: Float32Array, sampleRate: number, channels: number) => {
+  // Start AudioContext + laad rx-processor worklet zodra audio wordt ingeschakeld.
+  // Dit gebeurt VOOR de eerste frame, zodat rxWorkletReadyRef.current al true is
+  // wanneer scheduleAudio de eerste samples ontvangt (race condition fix).
+  const initAudioContext = useCallback((sampleRate: number) => {
+    if (audioCtxRef.current) return // al geïnitialiseerd
+    const ctx = new AudioContext({ sampleRate, latencyHint: 'playback' })
+    audioCtxRef.current = ctx
+    const rxDevice = localStorage.getItem('bolt-rx-device')
+    if (rxDevice && (ctx as any).setSinkId) {
+      (ctx as any).setSinkId(rxDevice).catch(() => {})
+    }
+    ctx.audioWorklet.addModule('/rx-processor.js').then(() => {
+      if (!audioCtxRef.current) return // audio werd tussentijds uitgeschakeld
+      const node = new AudioWorkletNode(audioCtxRef.current, 'rx-processor', {
+        numberOfInputs: 0,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
+      })
+      node.connect(audioCtxRef.current.destination)
+      const thresholdMs = parseInt(localStorage.getItem('bolt-rx-buffer-ms') || '140')
+      node.port.postMessage({ config: true, thresholdMs })
+      rxWorkletRef.current = node
+      rxWorkletReadyRef.current = true
+      window.addEventListener('bolt-rx-max-buffer', (e: Event) => {
+        const seconds = (e as CustomEvent).detail
+        node.port.postMessage({ setMaxBuffer: true, seconds })
+        setTimeout(() => node.port.postMessage({ setMaxBuffer: true, seconds: 2 }), 3000)
+      })
+    }).catch(e => console.error('rx-processor laden mislukt', e))
+  }, [])
+
+  const scheduleAudio = useCallback((samples: Float32Array, _sampleRate: number, channels: number) => {
     if (!audioEnabledRef.current) return
-
-    if (!audioCtxRef.current) {
-      audioCtxRef.current = new AudioContext({ sampleRate, latencyHint: 'playback' })
-      const rxDevice = localStorage.getItem('bolt-rx-device')
-      if (rxDevice && (audioCtxRef.current as any).setSinkId) {
-        (audioCtxRef.current as any).setSinkId(rxDevice).catch(() => {})
-      }
-      audioCtxRef.current.audioWorklet.addModule('/rx-processor.js').then(() => {
-        if (!audioCtxRef.current) return
-        const node = new AudioWorkletNode(audioCtxRef.current, 'rx-processor', {
-          numberOfInputs: 0,
-          numberOfOutputs: 1,
-          outputChannelCount: [1],
-        })
-        node.connect(audioCtxRef.current.destination)
-        // Stuur buffer threshold config
-        const thresholdMs = parseInt(localStorage.getItem('bolt-rx-buffer-ms') || '140')
-        node.port.postMessage({ config: true, thresholdMs })
-        rxWorkletRef.current = node
-        rxWorkletReadyRef.current = true
-        // Luister naar max buffer events
-        window.addEventListener('bolt-rx-max-buffer', (e: Event) => {
-          const seconds = (e as CustomEvent).detail
-          node.port.postMessage({ setMaxBuffer: true, seconds })
-          setTimeout(() => node.port.postMessage({ setMaxBuffer: true, seconds: 2 }), 3000)
-        })
-      }).catch(e => console.error('rx-processor laden mislukt', e))
-    }
     const ctx = audioCtxRef.current
+    if (!ctx) return // worklet nog niet klaar — frame overgeslagen, geen race meer mogelijk
     if (ctx.state === 'suspended') ctx.resume()
-
-    if (rxWorkletReadyRef.current && rxWorkletRef.current) {
-      let mono: Float32Array
-      if (channels === 1) {
-        mono = samples
-      } else {
-        const frameCount = samples.length / channels
-        mono = new Float32Array(frameCount)
-        for (let i = 0; i < frameCount; i++) mono[i] = samples[i * channels]
-      }
-      rxWorkletRef.current.port.postMessage(mono)
+    if (!rxWorkletReadyRef.current || !rxWorkletRef.current) return
+    let mono: Float32Array
+    if (channels === 1) {
+      mono = samples
+    } else {
+      const frameCount = samples.length / channels
+      mono = new Float32Array(frameCount)
+      for (let i = 0; i < frameCount; i++) mono[i] = samples[i * channels]
     }
+    rxWorkletRef.current.port.postMessage(mono)
   }, [])
 
   const flushAudioBuffer = useCallback(() => {
     if (audioCtxRef.current) {
       audioCtxRef.current.close()
       audioCtxRef.current = null
+      rxWorkletRef.current = null
+      rxWorkletReadyRef.current = false
       nextPlayTimeRef.current = 0
     }
   }, [])
 
-    const setAudioEnabled = useCallback((enabled: boolean) => {
+  const setAudioEnabled = useCallback((enabled: boolean) => {
     audioEnabledRef.current = enabled
     setAudioEnabledState(enabled)
+    if (enabled) {
+      // Initialiseer AudioContext + worklet direct bij inschakelen (48kHz default;
+      // de sampleRate wordt bevestigd zodra de eerste frame binnenkomt en de
+      // AudioContext al klaar is zodat geen frames worden gedropt).
+      initAudioContext(48000)
+    }
     const ws = wsRef.current
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(new Uint8Array([MSG_AUDIO_STREAM_REQUEST, enabled ? 1 : 0]))
@@ -219,9 +230,11 @@ export function useRadioSocket(serverUrl = DEFAULT_WS_URL(), onMidiLearn?: (fram
     if (!enabled && audioCtxRef.current) {
       audioCtxRef.current.close()
       audioCtxRef.current = null
+      rxWorkletRef.current = null
+      rxWorkletReadyRef.current = false
       nextPlayTimeRef.current = 0
     }
-  }, [])
+  }, [initAudioContext])
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
@@ -236,30 +249,43 @@ export function useRadioSocket(serverUrl = DEFAULT_WS_URL(), onMidiLearn?: (fram
       if (audioEnabledRef.current) {
         ws.send(new Uint8Array([MSG_AUDIO_STREAM_REQUEST, 1]))
       }
-      fetch('/api/state').then(r => r.json()).then(state => {
-        setRadioState(s => ({
-          ...s,
-          vfoHz: state.vfoHz ?? s.vfoHz,
-          mode: s.mode?.startsWith("RTTY") ? s.mode : (state.mode === "CWU" ? "CW" : state.mode) ?? s.mode,
-          filterLow: state.filterLowHz ?? s.filterLow,
-          txFilterLow: state.txFilterLowHz ?? s.txFilterLow,
-          txFilterHigh: state.txFilterHighHz ?? s.txFilterHigh,
-          rxAfGainDb: state.rxAfGainDb ?? s.rxAfGainDb,
-          agcTopDb: state.agcTopDb ?? s.agcTopDb,
-          attDb: state.attenDb ?? s.attDb,
-          preamp: state.preampOn ?? s.preamp,
-          squelchEnabled: state.squelch?.enabled ?? s.squelchEnabled,
-          squelchLevel: state.squelch?.level ?? s.squelchLevel,
-          driveDb: state.drivePct ?? s.driveDb,
-          driveMaxPct: state.driveMaxPct ?? s.driveMaxPct,
-          tunePct: state.tunePct ?? s.tunePct,
-          filterHigh: state.filterHighHz ?? s.filterHigh,
-          agcMode: state.agc?.mode ?? s.agcMode,
-          nrMode: state.nr?.nrMode ?? s.nrMode,
-          anfEnabled: state.nr?.anfEnabled ?? s.anfEnabled,
-          snbEnabled: state.nr?.snbEnabled ?? s.snbEnabled,
-          connected: true,
-        }))
+      fetch('/api/radio/state').then(r => r.json()).then(state => {
+        setRadioState(s => {
+          // drive/tune: server geeft 0 terug na herstart (nog niet ingesteld).
+          // Gebruik de server-waarde alleen als die > 0 is; anders bewaar de
+          // lokale waarde (uit band-state) en push die zo meteen terug.
+          const driveDb = (state.drivePct != null && state.drivePct > 0) ? state.drivePct : s.driveDb
+          const tunePct  = (state.tunePct  != null && state.tunePct  > 0) ? state.tunePct  : s.tunePct
+          const driveMaxPct = (state.driveMaxPct != null && state.driveMaxPct > 0) ? state.driveMaxPct : s.driveMaxPct
+
+          // Stuur de lokale waarden terug naar de server als die 0 waren
+          if (!state.drivePct || state.drivePct === 0)
+            fetch('/api/radio/drive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ percent: driveDb }) }).catch(() => {})
+          if (!state.tunePct || state.tunePct === 0)
+            fetch('/api/radio/tune-drive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ percent: tunePct }) }).catch(() => {})
+
+          return {
+            ...s,
+            vfoHz: state.vfoHz ?? s.vfoHz,
+            mode: s.mode?.startsWith("RTTY") ? s.mode : (state.mode === "CWU" ? "CW" : state.mode) ?? s.mode,
+            filterLow: state.filterLowHz ?? s.filterLow,
+            txFilterLow: state.txFilterLowHz ?? s.txFilterLow,
+            txFilterHigh: state.txFilterHighHz ?? s.txFilterHigh,
+            rxAfGainDb: state.rxAfGainDb ?? s.rxAfGainDb,
+            agcTopDb: state.agcTopDb ?? s.agcTopDb,
+            attDb: state.attenDb ?? s.attDb,
+            preamp: state.preampOn ?? s.preamp,
+            squelchEnabled: state.squelch?.enabled ?? s.squelchEnabled,
+            squelchLevel: state.squelch?.level ?? s.squelchLevel,
+            driveDb, driveMaxPct, tunePct,
+            filterHigh: state.filterHighHz ?? s.filterHigh,
+            agcMode: state.agc?.mode ?? s.agcMode,
+            nrMode: state.nr?.nrMode ?? s.nrMode,
+            anfEnabled: state.nr?.anfEnabled ?? s.anfEnabled,
+            snbEnabled: state.nr?.snbEnabled ?? s.snbEnabled,
+            connected: true,
+          }
+        })
       }).catch(() => {})
     }
 
@@ -349,7 +375,7 @@ export function useRadioSocket(serverUrl = DEFAULT_WS_URL(), onMidiLearn?: (fram
       setMicPeak(0)
     }
     if (!active) {
-      // Flush audio buffer on TX->RX
+      // Flush audio buffer op TX->RX
       nextPlayTimeRef.current = 0
     }
   }, [])
