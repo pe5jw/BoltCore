@@ -1,0 +1,500 @@
+
+// Bolt SDR MIDI Engine â€” browser-side Web MIDI API
+// Copyright (C) 2026 Joeri Visser (PE5JW), GPL-2.0-or-later
+
+const STORAGE_KEY = 'bolt-sdr-midi-mappings'
+const PROFILES_KEY = 'bolt-sdr-midi-profiles'
+const ACTIVE_PROFILE_KEY = 'bolt-sdr-midi-active-profile'
+
+export type MidiControlType = 'Button' | 'Wheel' | 'KnobOrSlider'
+
+export interface MidiMapping {
+  id: string           // e.g. "cc:0:65" or "note:0:67"
+  controlType: MidiControlType
+  command: string      // e.g. "ChangeFreqVfoA"
+  toggle: boolean      // for buttons: toggle vs momentary
+  min: number
+  max: number
+  deviceName: string
+  centerValue?: number
+}
+
+export interface MidiLearnEvent {
+  id: string
+  controlType: MidiControlType
+  value: number
+  delta: number
+  deviceName: string
+}
+
+type LearnCallback = (event: MidiLearnEvent) => void
+type MessageCallback = (id: string, controlType: MidiControlType, value: number, delta: number) => void
+
+// Available commands with labels
+export const MIDI_COMMANDS: { command: string; label: string; controlType: MidiControlType; group: string }[] = [
+  // Afstemmen
+  { command: 'ChangeFreqVfoA', label: 'VFO A Afstemmen', controlType: 'Wheel', group: 'Afstemmen' },
+  { command: 'BandUp',         label: 'Band omhoog',      controlType: 'Button', group: 'Afstemmen' },
+  { command: 'BandDown',       label: 'Band omlaag',      controlType: 'Button', group: 'Afstemmen' },
+  { command: 'BandCycle',      label: 'Band cycle',       controlType: 'Button', group: 'Afstemmen' },
+  { command: 'ZoomSliderInc',  label: 'Zoom',             controlType: 'Wheel', group: 'Afstemmen' },
+  { command: 'ZoomIn',         label: 'Zoom in',          controlType: 'Button', group: 'Afstemmen' },
+  { command: 'ZoomOut',        label: 'Zoom uit',         controlType: 'Button', group: 'Afstemmen' },
+  { command: 'AutoSet',        label: 'Auto SET',         controlType: 'Button', group: 'Afstemmen' },
+  // Modes
+  { command: 'ModeUSB',        label: 'Mode USB',         controlType: 'Button', group: 'Mode' },
+  { command: 'ModeLSB',        label: 'Mode LSB',         controlType: 'Button', group: 'Mode' },
+  { command: 'ModeCW',         label: 'Mode CW',          controlType: 'Button', group: 'Mode' },
+  { command: 'ModeCWL',        label: 'Mode CWL',         controlType: 'Button', group: 'Mode' },
+  { command: 'ModeAM',         label: 'Mode AM',          controlType: 'Button', group: 'Mode' },
+  { command: 'ModeFM',         label: 'Mode FM',          controlType: 'Button', group: 'Mode' },
+  { command: 'ModeDIGU',       label: 'Mode DIGU',        controlType: 'Button', group: 'Mode' },
+  { command: 'ModeDIGL',       label: 'Mode DIGL',        controlType: 'Button', group: 'Mode' },
+  // RX
+  { command: 'SetAfGain',      label: 'AF Gain',          controlType: 'KnobOrSlider', group: 'RX' },
+  { command: 'RfGain',         label: 'RF Gain',          controlType: 'KnobOrSlider', group: 'RX' },
+  { command: 'SquelchLevel',   label: 'Squelch niveau',   controlType: 'KnobOrSlider', group: 'RX' },
+  { command: 'AgcNext',        label: 'AGC volgende',     controlType: 'Button', group: 'RX' },
+  { command: 'NrToggle',       label: 'NR aan/uit',       controlType: 'Button', group: 'RX' },
+  { command: 'AnfToggle',      label: 'ANF aan/uit',      controlType: 'Button', group: 'RX' },
+  { command: 'MuteOnOff',      label: 'Mute',             controlType: 'Button', group: 'RX' },
+  // TX
+  { command: 'MoxOnOff',       label: 'PTT / MOX',        controlType: 'Button', group: 'TX' },
+  { command: 'TunOnOff',       label: 'Tune',             controlType: 'Button', group: 'TX' },
+  { command: 'DriveLevel',     label: 'Drive',            controlType: 'KnobOrSlider', group: 'TX' },
+  { command: 'MicGain',        label: 'Mic Gain',         controlType: 'KnobOrSlider', group: 'TX' },
+  // CW
+  { command: 'CwxKey',      label: 'CW Key (momentary)',  controlType: 'Button', group: 'CW' },
+  { command: 'CwxDit',      label: 'CW Paddle Dit',       controlType: 'Button', group: 'CW' },
+  { command: 'CwxDah',      label: 'CW Paddle Dah',       controlType: 'Button', group: 'CW' },
+  { command: 'CwxMacro1',   label: 'CW Macro 1',          controlType: 'Button', group: 'CW' },
+  { command: 'CwxMacro2',   label: 'CW Macro 2',          controlType: 'Button', group: 'CW' },
+  { command: 'CwxMacro3',   label: 'CW Macro 3',          controlType: 'Button', group: 'CW' },
+  { command: 'CwxMacro4',   label: 'CW Macro 4',          controlType: 'Button', group: 'CW' },
+  { command: 'CwxMacro5',   label: 'CW Macro 5',          controlType: 'Button', group: 'CW' },
+  { command: 'CwxMacro6',   label: 'CW Macro 6',          controlType: 'Button', group: 'CW' },
+  { command: 'CwxStop',     label: 'CW Stop',             controlType: 'Button', group: 'CW' },
+  { command: 'CwSpeed',     label: 'CW Snelheid',         controlType: 'KnobOrSlider', group: 'CW' },
+]
+
+// Iambic paddle keyer — genereert dit/dah timing en stuurt /api/cw/key aan
+class IambicKeyer {
+  private wpm = 22
+  private ditDown = false
+  private dahDown = false
+  private running = false
+  private lastWasDit = false
+  private aborted = false
+
+  setWpm(wpm: number) { this.wpm = Math.max(5, Math.min(50, wpm)) }
+
+  private unitMs() { return 1200 / this.wpm }
+
+  private async key(down: boolean) {
+    await fetch('/api/cw/key', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ down }) }).catch(() => {})
+  }
+
+  private sleep(ms: number) {
+    return new Promise<void>(r => setTimeout(r, ms))
+  }
+
+  ditPress(down: boolean) {
+    this.ditDown = down
+    if (down && !this.running) this.run()
+  }
+
+  dahPress(down: boolean) {
+    this.dahDown = down
+    if (down && !this.running) this.run()
+  }
+
+  private async run() {
+    this.running = true
+    this.aborted = false
+    const u = () => this.unitMs()
+    while ((this.ditDown || this.dahDown) && !this.aborted) {
+      let sendDit: boolean
+      if (this.ditDown && this.dahDown) {
+        sendDit = !this.lastWasDit
+      } else {
+        sendDit = this.ditDown
+      }
+      this.lastWasDit = sendDit
+      const onTime = sendDit ? u() : u() * 3
+      await this.key(true)
+      await this.sleep(onTime)
+      if (this.aborted) { await this.key(false); break }
+      await this.key(false)
+      await this.sleep(u())
+    }
+    if (this.aborted) await this.key(false)
+    this.running = false
+  }
+
+  stop() {
+    this.ditDown = false
+    this.dahDown = false
+    this.aborted = true
+    this.key(false).catch(() => {})
+  }
+}
+
+const iambicKeyer = new IambicKeyer()
+
+class MidiEngine {
+  private access: MIDIAccess | null = null
+  private mappings: MidiMapping[] = []
+  private learnCallback: LearnCallback | null = null
+  private messageCallback: MessageCallback | null = null
+  private learning = false
+  onMox: ((on: boolean) => void) | null = null
+  onTune: ((on: boolean) => void) | null = null
+  onVfoChange: ((hz: number) => void) | null = null
+  onCommand: ((cmd: string, value: number, delta: number) => void) | null = null
+  private encValues: Record<string, number> = {}
+  wsRef: { current: WebSocket | null } | null = null
+  tuneStepHz = 1000
+  private pulseAccum = 0
+  private moxState = false
+  private tuneState = false
+  
+
+  constructor() {
+    this.loadMappings()
+  }
+
+  loadMappings(): void {
+    try {
+      this.mappings = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
+    } catch {
+      this.mappings = []
+    }
+  }
+
+  saveMappings(): void {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(this.mappings))
+  }
+
+  getMappings(): MidiMapping[] {
+    return this.mappings
+  }
+
+  getProfiles(): string[] {
+    try { return JSON.parse(localStorage.getItem(PROFILES_KEY) || '["Standaard"]') } catch { return ['Standaard'] }
+  }
+
+  getActiveProfile(): string {
+    return localStorage.getItem(ACTIVE_PROFILE_KEY) || 'Standaard'
+  }
+
+  saveProfile(name: string): void {
+    const profiles = this.getProfiles()
+    if (!profiles.includes(name)) {
+      profiles.push(name)
+      localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles))
+    }
+    localStorage.setItem('bolt-sdr-midi-profile-' + name, JSON.stringify(this.mappings))
+    localStorage.setItem(ACTIVE_PROFILE_KEY, name)
+  }
+
+  loadProfile(name: string): void {
+    try {
+      this.mappings = JSON.parse(localStorage.getItem('bolt-sdr-midi-profile-' + name) || '[]')
+    } catch {
+      this.mappings = []
+    }
+    localStorage.setItem(ACTIVE_PROFILE_KEY, name)
+    this.saveMappings()
+  }
+
+  deleteProfile(name: string): void {
+    if (name === 'Standaard') return
+    const profiles = this.getProfiles().filter(p => p !== name)
+    localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles))
+    localStorage.removeItem('bolt-sdr-midi-profile-' + name)
+    if (this.getActiveProfile() === name) this.loadProfile('Standaard')
+  }
+
+  setMapping(mapping: MidiMapping): void {
+    const idx = this.mappings.findIndex(m => m.id === mapping.id)
+    if (idx >= 0) this.mappings[idx] = mapping
+    else this.mappings.push(mapping)
+    this.saveMappings()
+  }
+
+  removeMapping(id: string): void {
+    this.mappings = this.mappings.filter(m => m.id !== id)
+    this.saveMappings()
+  }
+
+  async init(): Promise<boolean> {
+    if (!navigator.requestMIDIAccess) return false
+    try {
+      this.access = await navigator.requestMIDIAccess({ sysex: false })
+      this.setupInputs()
+      this.access.onstatechange = () => this.setupInputs()
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  getDevices(): string[] {
+    if (!this.access) return []
+    return Array.from(this.access.inputs.values()).map(i => i.name || 'Unknown')
+  }
+
+  private deviceListeners: (() => void)[] = []
+  private monitorListeners: ((msg: string) => void)[] = []
+
+  onMonitor(cb: (msg: string) => void): void { this.monitorListeners.push(cb) }
+  offMonitor(cb: (msg: string) => void): void { this.monitorListeners = this.monitorListeners.filter(l => l !== cb) }
+  private monitor(msg: string): void { this.monitorListeners.forEach(cb => cb(msg)) }
+
+  onDeviceChange(cb: () => void): void {
+    this.deviceListeners.push(cb)
+  }
+
+  private setupInputs(): void {
+    if (!this.access) return
+    for (const input of this.access.inputs.values()) {
+      input.onmidimessage = (e) => this.handleMessage(e, input.name || 'Unknown')
+    }
+    this.deviceListeners.forEach(cb => cb())
+  }
+
+  private decodeRelative(value: number, center = 64): number {
+    if (value === center) return 0
+    return value - center
+  }
+
+  private handleMessage(e: MIDIMessageEvent, deviceName: string): void {
+    const data = e.data
+    if (!data || data.length < 2) return
+
+    const status = data[0]
+    const type = status & 0xF0
+    const channel = status & 0x0F
+    const byte1 = data[1]
+    const byte2 = data.length > 2 ? data[2] : 0
+
+    let id = ''
+    let controlType: MidiControlType = 'Button'
+    let value = 0
+    let delta = 0
+
+    if (type === 0xB0) {
+      // Control Change
+      id = `cc:${channel}:${byte1}`
+      value = byte2
+      delta = this.decodeRelative(byte2)
+      // Detecteer type: als waarden altijd 1 of 127 zijn = wheel
+      controlType = (byte2 === 1 || byte2 === 127 || byte2 <= 63 && byte2 > 0 || byte2 >= 65) ? 'Wheel' : 'KnobOrSlider'
+    } else if (type === 0x90) {
+      // Note On
+      id = `note:${channel}:${byte1}`
+      controlType = 'Button'
+      value = byte2
+    } else if (type === 0x80) {
+      // Note Off
+      id = `note:${channel}:${byte1}`
+      controlType = 'Button'
+      value = 0
+    } else {
+      return
+    }
+
+    this.monitor(id + " v=" + value + (delta !== 0 ? " d=" + delta : "") + " [" + deviceName + "]")
+    if (this.learning && this.learnCallback) {
+      this.learnCallback({ id, controlType, value, delta, deviceName })
+      return
+    }
+
+    this.dispatch(id, controlType, value, delta)
+  }
+
+  private dispatch(id: string, controlType: MidiControlType, value: number, delta: number): void {
+    const mapping = this.mappings.find(m => m.id === id)
+    if (!mapping) return
+    if (this.messageCallback) this.messageCallback(id, controlType, value, delta)
+    this.execute(mapping, value, delta)
+  }
+
+  private execute(mapping: MidiMapping, value: number, delta: number): void {
+    const cmd = mapping.command
+    // Commando's die de app afhandelt via onCommand (behalve VFO/MOX/Tune met eigen callbacks)
+    const appCommands = ['ModeUSB','ModeLSB','ModeCW','ModeCWL','ModeAM','ModeFM','ModeDIGU','ModeDIGL','SetAfGain','DriveLevel','RfGain','MicGain','SquelchLevel','BandUp','BandDown','BandCycle','MuteOnOff','AgcNext','NrToggle','AnfToggle','ZoomSliderInc','ZoomIn','ZoomOut','AutoSet','CwSpeed']
+    if (appCommands.includes(cmd)) {
+      if (mapping.controlType === 'Wheel') {
+        const center = mapping.centerValue ?? 64
+        const d = delta !== 0 ? delta : this.decodeRelative(value, center)
+        if (d === 0) return
+        const reverse = (mapping as any).reverse ? -1 : 1
+        const dir = (d > 0 ? 1 : -1) * reverse
+        const step = (mapping as any).encStep ?? 4
+        const prev = this.encValues[cmd] ?? 64
+        const nv = Math.max(0, Math.min(127, prev + dir * step))
+        this.encValues[cmd] = nv
+        this.onCommand?.(cmd, nv, d)
+      } else if (mapping.controlType === 'Button') {
+        const on = value > 0
+        if (!on && !mapping.toggle) return
+        this.onCommand?.(cmd, value, delta)
+      } else {
+        this.onCommand?.(cmd, value, delta)
+      }
+      return
+    }
+    if (mapping.controlType === 'Wheel') {
+      const center = mapping.centerValue ?? 64
+      const d = delta !== 0 ? delta : this.decodeRelative(value, center)
+      if (d === 0) return
+      if (cmd === 'ChangeFreqVfoA') {
+        this.nudgeVfo(d, mapping)
+        return
+      }
+      if (cmd === 'ZoomSliderInc') {
+        fetch('/api/rx/zoom', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ level: d > 0 ? 1 : -1 }) }).catch(() => {})
+        return
+      }
+      if (cmd === 'SetAfGain') {
+        fetch('/api/rx/afGain', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ db: Math.round(value * 40 / 127 - 20) }) }).catch(() => {})
+        return
+      }
+      if (cmd === 'DriveLevel') {
+        fetch('/api/tx/drive', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pct: Math.round(value * 100 / 127) }) }).catch(() => {})
+        return
+      }
+    }
+
+    // Button commando's
+    // Button commando's
+    if (mapping.controlType === 'Button') {
+      const on = value > 0
+      if (cmd === 'MoxOnOff') {
+        const moxOn = mapping.toggle ? (on ? !this.moxState : this.moxState) : on
+        if (mapping.toggle && !on) return
+        this.moxState = moxOn
+        this.onMox?.(moxOn)
+        fetch('/api/tx/mox', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ on: moxOn }) }).catch(() => {})
+        return
+      }
+      if (cmd === 'TunOnOff') {
+        if (mapping.toggle && !on) return  // toggle: alleen reageren op indrukken
+        const tuneOn = mapping.toggle ? !this.tuneState : on
+        this.tuneState = tuneOn
+        this.onTune?.(tuneOn)
+        fetch('/api/tx/tun', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ on: tuneOn }) }).catch(() => {})
+        return
+      }
+      // CwxKey — momentary: key down op note-on, key up op note-off (beide kanten nodig)
+      if (cmd === 'CwxKey') {
+        fetch('/api/cw/key', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ down: on }) }).catch(() => {})
+        return
+      }
+      // CwxDit / CwxDah — iambic paddle
+      if (cmd === 'CwxDit') { iambicKeyer.ditPress(on); return }
+      if (cmd === 'CwxDah') { iambicKeyer.dahPress(on); return }
+      if (!on && !mapping.toggle) return  // momentary: alleen actie bij indrukken
+      if (cmd === 'MuteOnOff') {
+        fetch('/api/rx/mute', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ muted: on }) }).catch(() => {})
+        return
+      }
+      if (cmd === 'ModeUSB') { fetch('/api/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'USB' }) }).catch(() => {}); return }
+      if (cmd === 'ModeLSB') { fetch('/api/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'LSB' }) }).catch(() => {}); return }
+      if (cmd === 'ModeCW')  { fetch('/api/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'CW' }) }).catch(() => {}); return }
+      if (cmd === 'BandUp')   { fetch('/api/band/up',   { method: 'POST' }).catch(() => {}); return }
+      if (cmd === 'BandDown') { fetch('/api/band/down', { method: 'POST' }).catch(() => {}); return }
+      if (cmd === 'ModeCWL')  { fetch('/api/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'CWL' }) }).catch(() => {}); return }
+      if (cmd === 'ModeAM')   { fetch('/api/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'AM' }) }).catch(() => {}); return }
+      if (cmd === 'ModeFM')   { fetch('/api/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'FM' }) }).catch(() => {}); return }
+      if (cmd === 'ModeDIGU') { fetch('/api/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'DIGU' }) }).catch(() => {}); return }
+      if (cmd === 'ModeDIGL') { fetch('/api/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'DIGL' }) }).catch(() => {}); return }
+      if (cmd === 'CwxStop') { iambicKeyer.stop(); fetch('/api/cw/key', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({down:false}) }).catch(()=>{}); fetch('/api/cw/abort', { method: 'POST' }).catch(() => {}); return }
+      if (cmd.startsWith('CwxMacro')) {
+        const on2 = value > 0
+        if (!on2) return
+        const slot = parseInt(cmd.replace('CwxMacro', '')) - 1
+        const macros: string[] = JSON.parse(localStorage.getItem('bolt-cw-macros') || '[]')
+        const text = macros[slot]
+        if (text) fetch('/api/cw/send', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }) }).catch(() => {})
+        return
+      }
+    }
+  }
+  private pendingVfo: number | null = null
+  private vfoTimer: ReturnType<typeof setTimeout> | null = null
+  private lastVfoHz = 0
+
+  setVfoHz(hz: number): void { if (!this.pendingVfo) this.lastVfoHz = hz }
+
+  private nudgeVfo(delta: number, mapping: MidiMapping): void {
+    const stepFactor = (mapping as any).stepHz ?? 1000
+    const pulsesPerStep = (mapping as any).pulsesPerStep ?? 1
+    const encType = (mapping as any).encType ?? 'absolute'
+    const reverse = (mapping as any).reverse ? -1 : 1
+    const zones: { maxDelta: number; multiplier: number }[] = (mapping as any).zones ?? []
+    let dir: number, multiplier: number
+    if (encType === 'relative') {
+      dir = delta <= 0 ? 1 : -1
+      multiplier = 1
+      this.pulseAccum += dir
+      if (Math.abs(this.pulseAccum) < pulsesPerStep) return
+      this.pulseAccum = 0
+    } else {
+      // delta is al center-gecorrigeerde waarde vanuit execute
+      const d = delta
+      if (d === 0) return
+      const absD = Math.abs(delta)
+      dir = d > 0 ? 1 : -1
+      if (zones.length > 0) {
+        const sorted = [...zones].sort((a, b) => a.maxDelta - b.maxDelta)
+        multiplier = sorted[sorted.length-1].multiplier
+        for (const z of sorted) { if (absD <= z.maxDelta) { multiplier = z.multiplier; break } }
+      } else { multiplier = 1 }
+      if (multiplier === 1) {
+        this.pulseAccum += dir
+        if (Math.abs(this.pulseAccum) < pulsesPerStep) return
+        this.pulseAccum = 0
+      }
+    }
+    const step = Math.round(this.tuneStepHz * (stepFactor / 1000) * multiplier * dir * reverse)
+    this.pendingVfo = (this.pendingVfo ?? 0) + step
+    if (this.vfoTimer) clearTimeout(this.vfoTimer)
+    this.vfoTimer = setTimeout(() => {
+      const d = this.pendingVfo ?? 0
+      this.pendingVfo = null
+      if (d === 0) return
+      const newHz = Math.round(this.lastVfoHz + d)
+      this.lastVfoHz = newHz
+      this.onVfoChange?.(this.lastVfoHz)
+      fetch('/api/vfo', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ receiver: 0, hz: newHz }) }).catch(() => {})
+    }, 30)
+  }
+
+  startLearn(cb: LearnCallback): void {
+    this.learning = true
+    this.learnCallback = cb
+  }
+
+  stopLearn(): void {
+    this.learning = false
+    this.learnCallback = null
+  }
+
+  isLearning(): boolean { return this.learning }
+
+  onMessage(cb: MessageCallback): void { this.messageCallback = cb }
+}
+
+export const midiEngine = new MidiEngine()

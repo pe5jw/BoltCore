@@ -1,0 +1,250 @@
+import { useState, useRef, useEffect } from 'react'
+import { SettingsModal } from './SettingsModal'
+import type { ConnectionStatus } from '../ws/useRadioSocket'
+
+interface DiscoveredRadio {
+  ip: string
+  mac: string
+  board: string
+  firmware: string
+  busy: boolean
+}
+
+
+interface Props {
+  learnFrame?: import('../midi').MidiLearnFrame | null
+  status: ConnectionStatus
+  radioName: string
+  connectedIp?: string
+  onConnect: (ip: string) => void
+  onDisconnect: () => void
+  audioEnabled: boolean
+  onAudio: (enabled: boolean) => void
+  onFlush?: () => void
+  muted?: boolean
+}
+
+export function StatusBar({ status, radioName, connectedIp, onConnect, onDisconnect, audioEnabled, onAudio, learnFrame, onFlush, muted }: Props) {
+  const [radios, setRadios] = useState<DiscoveredRadio[]>([])
+  const [fastFlush, setFastFlush] = useState(false)
+  const flushLongRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [showPicker, setShowPicker] = useState(false)
+  const [scanning, setScanning] = useState(false)
+  const [manualIp, setManualIp] = useState('')
+  const [activeEndpoint, setActiveEndpoint] = useState<string | null>(null)
+  const [showSettings, setShowSettings] = useState(false)
+  const autoOpenedRef = useRef(false)
+
+  // Auto-open radio picker bij opstarten als niet verbonden (zelfde gedrag als AnanCore)
+  useEffect(() => {
+    if (autoOpenedRef.current) return
+    autoOpenedRef.current = true
+    fetch('/api/state').then(r => r.json()).then(state => {
+      const isConnected = state.connectionStatus === 'Connected' || state.status === 'Connected'
+      if (!isConnected) {
+        setShowPicker(true)
+        setRadios(loadR())
+        if (loadR().length === 0) {
+          setScanning(true)
+          fetch('/api/radios').then(r => r.json()).then(res => {
+            const scanned: DiscoveredRadio[] = res.map((r: any) => ({ ip: r.ipAddress ?? r.ip, mac: r.macAddress ?? r.mac, board: r.boardId ?? r.board, firmware: r.firmwareVersion ?? r.firmware, busy: r.busy ?? false }))
+            let saved = loadR()
+            scanned.forEach(r => { saved = mergeR(saved, r) })
+            saveR(saved)
+            setRadios(saved)
+          }).catch(() => {}).finally(() => setScanning(false))
+        }
+      }
+    }).catch(() => {
+      setShowPicker(true)
+      setRadios(loadR())
+    })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const labels: Record<ConnectionStatus, string> = {
+    disconnected: 'Disconnected',
+    connecting: 'Connecting...',
+    connected: activeEndpoint ?? 'Connected',
+    error: 'Connection error',
+  }
+
+  const RKEY = 'bolt-sdr-radios'
+  const loadR = (): DiscoveredRadio[] => { try { return JSON.parse(localStorage.getItem(RKEY) || '[]') } catch { return [] } }
+  const saveR = (l: DiscoveredRadio[]) => localStorage.setItem(RKEY, JSON.stringify(l))
+  const mergeR = (l: DiscoveredRadio[], r: DiscoveredRadio): DiscoveredRadio[] => { const i = l.findIndex(x => x.ip === r.ip); if (i >= 0) { const n = [...l]; n[i] = r; return n } return [...l, r] }
+
+  const openPicker = async () => {
+    setShowPicker(true)
+    setRadios(loadR())
+    try {
+      const state = await fetch('/api/state').then(r => r.json()).catch(() => null)
+      if (state?.endpoint) { setActiveEndpoint(state.endpoint); localStorage.setItem('bolt-sdr-last-ip', state.endpoint) }
+      else if (state?.status !== 'Connected') setActiveEndpoint(null)
+    } catch {}
+  }
+
+  const scan = async () => {
+    setScanning(true)
+    try {
+      const res = await fetch('/api/radios').then(r => r.json())
+      const scanned: DiscoveredRadio[] = res.map((r: any) => ({ ip: r.ipAddress ?? r.ip, mac: r.macAddress ?? r.mac, board: r.boardId ?? r.board, firmware: r.firmwareVersion ?? r.firmware, busy: r.busy ?? false }))
+      let saved = loadR()
+      scanned.forEach(r => { saved = mergeR(saved, r) })
+      saveR(saved)
+      setRadios(saved)
+    } catch {}
+    setScanning(false)
+  }
+
+  const addManualIp = async () => {
+    if (!manualIp) return
+    try {
+      const probeRes = await fetch('/api/radios/probe?ip=' + manualIp)
+      let radio: DiscoveredRadio
+      if (probeRes.ok) {
+        const data = await probeRes.json()
+        radio = { ip: data.ipAddress ?? manualIp, mac: data.macAddress ?? '', board: data.boardId ?? 'HermesLite 2', firmware: data.firmwareVersion ?? '', busy: data.busy ?? false }
+      } else {
+        radio = { ip: manualIp, mac: '', board: 'HermesLite 2', firmware: '', busy: false }
+      }
+      const saved = mergeR(loadR(), radio)
+      saveR(saved)
+      setRadios(saved)
+      setManualIp('')
+    } catch {
+      alert('Could not reach ' + manualIp)
+    }
+  }
+
+
+
+
+  const removeRadio = (ip: string) => {
+    const saved = (JSON.parse(localStorage.getItem('bolt-sdr-radios') || '[]') as any[]).filter((r: any) => r.ip !== ip)
+    localStorage.setItem('bolt-sdr-radios', JSON.stringify(saved))
+    setRadios(prev => prev.filter(r => r.ip !== ip))
+  }
+
+  const disconnect = async () => {
+    await fetch('/api/disconnect', { method: 'POST' })
+    onDisconnect()
+  }
+
+  const sBtn = (active = false, color = 'var(--accent)') => ({
+    fontSize: 10, padding: '2px 8px', borderRadius: 3, cursor: 'pointer',
+    fontFamily: 'var(--font-data)',
+    background: active ? color : 'var(--bg-input)',
+    border: `1px solid ${active ? color : 'var(--border)'}`,
+    color: active ? 'var(--bg)' : 'var(--text-dim)'
+  } as React.CSSProperties)
+
+  return (
+    <div className={`bolt-status ${status}`} style={{ position: 'relative' }}>
+      <span className="dot" />
+      <span>{labels[status]}</span>
+      {radioName && <span style={{ color: 'var(--text)', marginLeft: 8, fontFamily: 'var(--font-data)', fontSize: 11 }}>{radioName}</span>}
+
+      <button onClick={openPicker} style={sBtn()}>Radio</button>
+
+      <button onClick={() => onAudio(!audioEnabled)} style={sBtn(audioEnabled, 'var(--rx)')}>
+        {muted ? '🔇 MUTE' : audioEnabled ? '🔊 RX' : '🔇 RX'}
+      </button>
+      {onFlush && <button
+        onClick={() => { onFlush(); window.dispatchEvent(new CustomEvent('bolt-rx-max-buffer', { detail: fastFlush ? 1 : 2 })) }}
+        onMouseDown={() => { console.log('mousedown fastFlush='+fastFlush); flushLongRef.current = setTimeout(() => { const nf = !fastFlush; console.log('longpress nf='+nf); setFastFlush(nf); window.dispatchEvent(new CustomEvent('bolt-rx-max-buffer', { detail: nf ? 1 : 2 })); onFlush && onFlush() }, 600) }}
+        onMouseUp={() => { if (flushLongRef.current) clearTimeout(flushLongRef.current) }}
+        onMouseLeave={() => { if (flushLongRef.current) clearTimeout(flushLongRef.current) }}
+        title={fastFlush ? "Auto flush: 1s (lang indrukken = terug naar 2s)" : "Auto flush: 2s (lang indrukken = 1s modus)"}
+        style={{ ...sBtn(fastFlush, fastFlush ? '#e74c3c' : 'var(--rx)'), fontSize: 9, padding: '2px 6px' }}>&#x27F3;</button>}
+      <button onClick={() => {
+        const cur = localStorage.getItem('bolt-controls-overlay') === 'true'
+        localStorage.setItem('bolt-controls-overlay', String(!cur))
+        window.dispatchEvent(new Event('bolt-controls-changed'))
+      }} style={sBtn(localStorage.getItem('bolt-controls-overlay') === 'true')}>⊞ COMPACT</button>
+      <button onClick={() => setShowSettings(true)} style={sBtn()}>⚙ SETTINGS</button>
+
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} learnFrame={learnFrame ?? null} />}
+
+      {showPicker && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 4, zIndex: 100, minWidth: 340, padding: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <span style={{ fontSize: 11, color: 'var(--text-dim)', letterSpacing: 2 }}>RADIO</span>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <button onClick={scan} style={sBtn(false)}>
+                {scanning ? 'Scanning...' : '🔍 Scan'}
+              </button>
+              <button onClick={() => setShowPicker(false)} style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: 14 }}>x</button>
+            </div>
+          </div>
+
+          {radios.length === 0 && !scanning && (
+            <div style={{ color: 'var(--text-dim)', fontSize: 11, marginBottom: 8, fontStyle: 'italic' }}>
+              Klik Scan om radios te zoeken
+            </div>
+          )}
+
+          {radios.map(r => {
+            const isConnected = (r.ip === connectedIp || r.ip === activeEndpoint) && status === 'connected'
+            return (
+              <div key={r.ip} style={{ marginBottom: 4 }}>
+                <div
+                  onClick={async () => {
+                    if (r.busy) return
+                    if (status === 'connected') {
+                      await fetch('/api/disconnect', { method: 'POST' })
+                      setActiveEndpoint(null)
+                      onDisconnect()
+                      await new Promise(res => setTimeout(res, 1000))
+                    }
+                    setActiveEndpoint(r.ip)
+                    onConnect(r.ip)
+                    setShowPicker(false)
+                  }}
+                  style={{
+                    padding: '6px 8px', borderRadius: 3,
+                    background: isConnected ? 'rgba(34,221,102,0.1)' : 'var(--bg-control)',
+                    border: `1px solid ${isConnected ? 'var(--green)' : 'transparent'}`,
+                    cursor: r.busy || isConnected ? 'default' : 'pointer',
+                    opacity: r.busy ? 0.5 : 1,
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                  }}>
+                  <div>
+                    <div style={{ fontFamily: 'var(--font-data)', color: isConnected ? 'var(--green)' : 'var(--accent)', fontSize: 12 }}>
+                      {r.board} - {r.ip} {isConnected ? '● CONNECTED' : r.busy ? '(busy)' : ''}
+                    </div>
+                    <div style={{ fontSize: 10, color: 'var(--text-dim)' }}>{r.ip}{r.mac && r.mac !== '—' ? ' — ' + r.mac : ''}{r.firmware && r.firmware !== '—' ? ' — fw ' + r.firmware : ''}</div>
+                  </div>
+                  <button onClick={e => { e.stopPropagation(); removeRadio(r.ip) }} style={{ background: 'none', border: 'none', color: '#c0392b', cursor: 'pointer', fontSize: 14, padding: '0 4px', alignSelf: 'flex-start' }}>✕</button>
+                </div>
+              </div>
+            )
+          })}
+
+          {/* Disconnect */}
+          {status === 'connected' && (
+            <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+              <button onClick={disconnect} style={{ width: '100%', fontSize: 10, padding: '4px 8px', background: 'transparent', border: '1px solid var(--tx)', color: 'var(--tx)', borderRadius: 3, cursor: 'pointer', fontFamily: 'var(--font-data)' }}>
+                DISCONNECT
+              </button>
+            </div>
+          )}
+
+          {/* Manual IP */}
+          <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 10, color: 'var(--text-dim)', fontFamily: 'var(--font-data)', marginBottom: 4 }}>ADD IP</div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <input type="text" value={manualIp} onChange={e => setManualIp(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && addManualIp()}
+                placeholder="192.168.x.x"
+                style={{ flex: 1, fontSize: 11, padding: '3px 6px', background: 'var(--bg-input)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 3, fontFamily: 'var(--font-data)' }} />
+              <button onClick={addManualIp} style={{ fontSize: 10, padding: '2px 8px', background: 'var(--bg-control)', border: '1px solid var(--border)', color: 'var(--text-dim)', borderRadius: 3, cursor: 'pointer', fontFamily: 'var(--font-data)' }}>Add</button>
+            </div>
+          </div>
+
+        </div>
+      )}
+
+      <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--accent)', fontFamily: 'var(--font-data)', letterSpacing: 2 }}>BOLT SDR</span>
+    </div>
+  )
+}
