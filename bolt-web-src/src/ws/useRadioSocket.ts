@@ -215,6 +215,7 @@ export function useRadioSocket(serverUrl = DEFAULT_WS_URL(), onMidiLearn?: (fram
   }, [])
 
   const setAudioEnabled = useCallback((enabled: boolean) => {
+    console.log(`[audio] setAudioEnabled(${enabled}) was=${audioEnabledRef.current}`, new Error().stack?.split('\n')[2])
     audioEnabledRef.current = enabled
     setAudioEnabledState(enabled)
     if (enabled) {
