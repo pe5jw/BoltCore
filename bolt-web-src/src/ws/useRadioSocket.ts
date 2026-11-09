@@ -230,7 +230,10 @@ export function useRadioSocket(serverUrl = DEFAULT_WS_URL(), onMidiLearn?: (fram
       const v = new DataView(buf)
       v.setUint8(0, MSG_AUDIO_STREAM_REQUEST)
       v.setUint8(1, enabled ? 1 : 0)
+      console.log(`[audio] stuur 0x21 enabled=${enabled} ws.readyState=${ws.readyState}`)
       ws.send(buf)
+    } else {
+      console.warn(`[audio] kan 0x21 niet sturen: ws=${wsRef.current?.readyState}`)
     }
     if (!enabled && audioCtxRef.current) {
       audioCtxRef.current.close()
