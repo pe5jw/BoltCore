@@ -225,7 +225,12 @@ export function useRadioSocket(serverUrl = DEFAULT_WS_URL(), onMidiLearn?: (fram
     }
     const ws = wsRef.current
     if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(new Uint8Array([MSG_AUDIO_STREAM_REQUEST, enabled ? 1 : 0]))
+      // AnanCore verwacht 16-byte header (net als display stream request)
+      const buf = new ArrayBuffer(16)
+      const v = new DataView(buf)
+      v.setUint8(0, MSG_AUDIO_STREAM_REQUEST)
+      v.setUint8(1, enabled ? 1 : 0)
+      ws.send(buf)
     }
     if (!enabled && audioCtxRef.current) {
       audioCtxRef.current.close()
@@ -247,7 +252,11 @@ export function useRadioSocket(serverUrl = DEFAULT_WS_URL(), onMidiLearn?: (fram
       setStatus('connected')
       ws.send(new Uint8Array([MSG_DISPLAY_STREAM_REQUEST, 1]))
       if (audioEnabledRef.current) {
-        ws.send(new Uint8Array([MSG_AUDIO_STREAM_REQUEST, 1]))
+        const abuf = new ArrayBuffer(16)
+        const av = new DataView(abuf)
+        av.setUint8(0, MSG_AUDIO_STREAM_REQUEST)
+        av.setUint8(1, 1)
+        ws.send(abuf)
       }
       fetch('/api/state').then(r => r.json()).then(state => {
         setRadioState(s => {
