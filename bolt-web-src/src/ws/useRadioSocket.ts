@@ -294,14 +294,21 @@ export function useRadioSocket(serverUrl = DEFAULT_WS_URL(), onMidiLearn?: (fram
         const buf = ev.data as ArrayBuffer
         const view = new DataView(buf)
         const msgType = view.getUint8(0)
-        // debug logging disabled, buf.byteLength)
+        // Tijdelijke debug: log onbekende message types (verwijder na diagnose)
+        if (msgType !== MSG_DISPLAY_FRAME && msgType !== MSG_AUDIO_PCM && msgType !== MSG_RX_METER && msgType !== MSG_TX_METER && msgType !== MSG_RX_METER_V2 && msgType !== MSG_MIDI_LEARN && msgType !== MSG_FLDIGI_TEXT) {
+          console.log(`[ws] onbekend msgType=0x${msgType.toString(16).padStart(2,'0')} len=${buf.byteLength}`)
+        }
         if (msgType === MSG_DISPLAY_FRAME) {
           const frame = parseDisplayFrame(buf)
           if (frame) setDisplay(frame)
         } else if (msgType === MSG_AUDIO_PCM) {
-        if (moxActiveRef.current) return // suppress RX audio during TX
+          if (moxActiveRef.current) return // suppress RX audio during TX
           const audio = parseAudioFrame(buf)
-          if (audio) scheduleAudio(audio.samples, audio.sampleRate, audio.channels)
+          if (audio) {
+            scheduleAudio(audio.samples, audio.sampleRate, audio.channels)
+          } else {
+            console.warn('[ws] audio frame parse mislukt, len=', buf.byteLength, 'header bytes:', Array.from(new Uint8Array(buf, 0, Math.min(20, buf.byteLength))).map(b => '0x'+b.toString(16)).join(' '))
+          }
         } else if (msgType === MSG_RX_METER && buf.byteLength >= 5) {
           const dbm = view.getFloat32(1, true)
           setMeters(m => ({ ...m, sMeter: dbm }))
