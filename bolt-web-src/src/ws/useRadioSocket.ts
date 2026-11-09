@@ -303,9 +303,9 @@ export function useRadioSocket(serverUrl = DEFAULT_WS_URL(), onMidiLearn?: (fram
         const buf = ev.data as ArrayBuffer
         const view = new DataView(buf)
         const msgType = view.getUint8(0)
-        // Tijdelijke debug: log onbekende message types (verwijder na diagnose)
-        if (msgType !== MSG_DISPLAY_FRAME && msgType !== MSG_AUDIO_PCM && msgType !== MSG_RX_METER && msgType !== MSG_TX_METER && msgType !== MSG_RX_METER_V2 && msgType !== MSG_MIDI_LEARN && msgType !== MSG_FLDIGI_TEXT) {
-          console.log(`[ws] onbekend msgType=0x${msgType.toString(16).padStart(2,'0')} len=${buf.byteLength}`)
+        // Debug: log alleen audio frames en onbekende types (niet 0x17/0x36 spam)
+        if (msgType === MSG_AUDIO_PCM) {
+          console.log(`[ws] 0x02 audio frame len=${buf.byteLength}`)
         }
         if (msgType === MSG_DISPLAY_FRAME) {
           const frame = parseDisplayFrame(buf)
