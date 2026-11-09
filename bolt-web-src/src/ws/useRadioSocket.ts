@@ -214,28 +214,54 @@ export function useRadioSocket(serverUrl = DEFAULT_WS_URL(), onMidiLearn?: (fram
     }
   }, [])
 
-  const setAudioEnabled = useCallback((enabled: boolean) => {
-    console.log(`[audio] setAudioEnabled(${enabled}) was=${audioEnabledRef.current}`, new Error().stack?.split('\n')[2])
-    audioEnabledRef.current = enabled
-    setAudioEnabledState(enabled)
-    if (enabled) {
-      // Initialiseer AudioContext + worklet direct bij inschakelen (48kHz default;
-      // de sampleRate wordt bevestigd zodra de eerste frame binnenkomt en de
-      // AudioContext al klaar is zodat geen frames worden gedropt).
-      initAudioContext(48000)
-    }
+  const sendAudioRequest = useCallback((enabled: boolean) => {
     const ws = wsRef.current
     if (ws?.readyState === WebSocket.OPEN) {
-      // AnanCore verwacht 16-byte header (net als display stream request)
       const buf = new ArrayBuffer(16)
       const v = new DataView(buf)
       v.setUint8(0, MSG_AUDIO_STREAM_REQUEST)
       v.setUint8(1, enabled ? 1 : 0)
-      console.log(`[audio] stuur 0x21 enabled=${enabled} ws.readyState=${ws.readyState}`)
       ws.send(buf)
-    } else {
-      console.warn(`[audio] kan 0x21 niet sturen: ws=${wsRef.current?.readyState}`)
     }
+  }, [])
+
+  const setAudioEnabled = useCallback((enabled: boolean) => {
+    audioEnabledRef.current = enabled
+    setAudioEnabledState(enabled)
+    if (enabled) {
+      // Initialiseer AudioContext + worklet, stuur 0x21 pas als worklet klaar is
+      if (!audioCtxRef.current) {
+        const ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'playback' })
+        audioCtxRef.current = ctx
+        const rxDevice = localStorage.getItem('bolt-rx-device')
+        if (rxDevice && (ctx as any).setSinkId) {
+          (ctx as any).setSinkId(rxDevice).catch(() => {})
+        }
+        ctx.audioWorklet.addModule('/rx-processor.js').then(() => {
+          if (!audioCtxRef.current) return
+          const node = new AudioWorkletNode(audioCtxRef.current, 'rx-processor', {
+            numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1],
+          })
+          node.connect(audioCtxRef.current.destination)
+          const thresholdMs = parseInt(localStorage.getItem('bolt-rx-buffer-ms') || '140')
+          node.port.postMessage({ config: true, thresholdMs })
+          rxWorkletRef.current = node
+          rxWorkletReadyRef.current = true
+          window.addEventListener('bolt-rx-max-buffer', (e: Event) => {
+            const seconds = (e as CustomEvent).detail
+            node.port.postMessage({ setMaxBuffer: true, seconds })
+            setTimeout(() => node.port.postMessage({ setMaxBuffer: true, seconds: 2 }), 3000)
+          })
+          // Stuur 0x21 pas nadat worklet klaar is
+          if (audioEnabledRef.current) sendAudioRequest(true)
+        }).catch(e => console.error('rx-processor laden mislukt', e))
+      } else {
+        // AudioContext bestaat al (bijv. na reconnect), stuur direct
+        sendAudioRequest(true)
+      }
+      return // 0x21 wordt verstuurd vanuit worklet callback
+    }
+    sendAudioRequest(false)
     if (!enabled && audioCtxRef.current) {
       audioCtxRef.current.close()
       audioCtxRef.current = null
@@ -243,7 +269,7 @@ export function useRadioSocket(serverUrl = DEFAULT_WS_URL(), onMidiLearn?: (fram
       rxWorkletReadyRef.current = false
       nextPlayTimeRef.current = 0
     }
-  }, [initAudioContext])
+  }, [initAudioContext, sendAudioRequest])
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
@@ -256,11 +282,7 @@ export function useRadioSocket(serverUrl = DEFAULT_WS_URL(), onMidiLearn?: (fram
       setStatus('connected')
       ws.send(new Uint8Array([MSG_DISPLAY_STREAM_REQUEST, 1]))
       if (audioEnabledRef.current) {
-        const abuf = new ArrayBuffer(16)
-        const av = new DataView(abuf)
-        av.setUint8(0, MSG_AUDIO_STREAM_REQUEST)
-        av.setUint8(1, 1)
-        ws.send(abuf)
+        sendAudioRequest(true)
       }
       fetch('/api/state').then(r => r.json()).then(state => {
         setRadioState(s => {
