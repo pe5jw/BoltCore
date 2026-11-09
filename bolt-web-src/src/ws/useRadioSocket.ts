@@ -188,11 +188,11 @@ export function useRadioSocket(serverUrl = DEFAULT_WS_URL(), onMidiLearn?: (fram
   }, [])
 
   const scheduleAudio = useCallback((samples: Float32Array, _sampleRate: number, channels: number) => {
-    if (!audioEnabledRef.current) return
+    if (!audioEnabledRef.current) { console.warn('[audio] scheduleAudio: audioEnabled=false, frame genegeerd'); return }
     const ctx = audioCtxRef.current
-    if (!ctx) return // worklet nog niet klaar — frame overgeslagen, geen race meer mogelijk
+    if (!ctx) { console.warn('[audio] scheduleAudio: geen AudioContext'); return }
     if (ctx.state === 'suspended') ctx.resume()
-    if (!rxWorkletReadyRef.current || !rxWorkletRef.current) return
+    if (!rxWorkletReadyRef.current || !rxWorkletRef.current) { console.warn('[audio] scheduleAudio: worklet niet klaar'); return }
     let mono: Float32Array
     if (channels === 1) {
       mono = samples
