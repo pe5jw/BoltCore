@@ -306,10 +306,6 @@ export function useRadioSocket(serverUrl = DEFAULT_WS_URL(), onMidiLearn?: (fram
         const buf = ev.data as ArrayBuffer
         const view = new DataView(buf)
         const msgType = view.getUint8(0)
-        // Debug: log alleen audio frames en onbekende types (niet 0x17/0x36 spam)
-        if (msgType === MSG_AUDIO_PCM) {
-          console.log(`[ws] 0x02 audio frame len=${buf.byteLength}`)
-        }
         if (msgType === MSG_DISPLAY_FRAME) {
           const frame = parseDisplayFrame(buf)
           if (frame) setDisplay(frame)
@@ -319,7 +315,8 @@ export function useRadioSocket(serverUrl = DEFAULT_WS_URL(), onMidiLearn?: (fram
           if (audio) {
             scheduleAudio(audio.samples, audio.sampleRate, audio.channels)
           } else {
-            console.warn('[ws] audio frame parse mislukt, len=', buf.byteLength, 'header bytes:', Array.from(new Uint8Array(buf, 0, Math.min(20, buf.byteLength))).map(b => '0x'+b.toString(16)).join(' '))
+            const hdr = Array.from(new Uint8Array(buf, 0, Math.min(24, buf.byteLength))).map(b => '0x'+b.toString(16).padStart(2,'0')).join(' ')
+            console.warn('[audio] parse mislukt len='+buf.byteLength+' hdr='+hdr)
           }
         } else if (msgType === MSG_RX_METER && buf.byteLength >= 5) {
           const dbm = view.getFloat32(1, true)
