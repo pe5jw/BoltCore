@@ -249,7 +249,7 @@ export function useRadioSocket(serverUrl = DEFAULT_WS_URL(), onMidiLearn?: (fram
       if (audioEnabledRef.current) {
         ws.send(new Uint8Array([MSG_AUDIO_STREAM_REQUEST, 1]))
       }
-      fetch('/api/radio/state').then(r => r.json()).then(state => {
+      fetch('/api/state').then(r => r.json()).then(state => {
         setRadioState(s => {
           // drive/tune: server geeft 0 terug na herstart (nog niet ingesteld).
           // Gebruik de server-waarde alleen als die > 0 is; anders bewaar de
@@ -260,9 +260,9 @@ export function useRadioSocket(serverUrl = DEFAULT_WS_URL(), onMidiLearn?: (fram
 
           // Stuur de lokale waarden terug naar de server als die 0 waren
           if (!state.drivePct || state.drivePct === 0)
-            fetch('/api/radio/drive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ percent: driveDb }) }).catch(() => {})
+            fetch('/api/tx/drive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ percent: driveDb }) }).catch(() => {})
           if (!state.tunePct || state.tunePct === 0)
-            fetch('/api/radio/tune-drive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ percent: tunePct }) }).catch(() => {})
+            fetch('/api/tx/tune-drive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ percent: tunePct }) }).catch(() => {})
 
           return {
             ...s,

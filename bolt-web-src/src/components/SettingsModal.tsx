@@ -46,7 +46,7 @@ export function SettingsModal({ onClose }: Props) {
   }, [])
   const [calFactor, setCalFactor] = useState(1.0)
   useEffect(() => {
-    fetch("/api/radio/freq-cal").then(r => r.json()).then(d => setCalFactor(d.factor)).catch(() => {})
+    fetch("/api/frequency-calibration").then(r => r.json()).then(d => setCalFactor(d.factor)).catch(() => {})
   }, [])
   const [bandGuardIgnore, setBandGuardIgnore] = useState(false)
   const [micGain, setMicGain] = useState(() => parseFloat(localStorage.getItem('bolt-mic-gain') ?? '8'))
@@ -64,7 +64,7 @@ export function SettingsModal({ onClose }: Props) {
   const [cfcStatus, setCfcStatus] = useState('')
     const [cfcBands, setCfcBands] = useState(CFC_FREQS.map(f => ({ freqHz: f, compLevelDb: 0, postGainDb: 0 })))
   useEffect(() => {
-    fetch('/api/radio/state').then(r => r.json()).then(s => {
+    fetch('/api/state').then(r => r.json()).then(s => {
       if (s.cfc) {
         setCfcEnabled(s.cfc.enabled ?? false)
         setCfcPostEq(s.cfc.postEqEnabled ?? false)
@@ -132,27 +132,27 @@ export function SettingsModal({ onClose }: Props) {
             {/* Master arm */}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <span style={{ fontSize: 10, color: 'var(--text-dim)', minWidth: 80 }}>PS AAN/UIT</span>
-              <button onClick={() => { fetch('/api/radio/ps', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Enabled: true, Auto: true, Single: false }) }).then(() => { setPsEnabled(true); setPsStatus('PS actief - AUTO') }) }}
+              <button onClick={() => { fetch('/api/tx/ps', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Enabled: true, Auto: true, Single: false }) }).then(() => { setPsEnabled(true); setPsStatus('PS actief - AUTO') }) }}
                 style={{ fontSize: 10, padding: '3px 12px', borderRadius: 3, cursor: 'pointer', background: psEnabled ? 'var(--accent)' : 'var(--bg-control)', border: psEnabled ? 'none' : '1px solid var(--accent)', color: psEnabled ? 'var(--bg)' : 'var(--accent)' }}>AAN (AUTO)</button>
-              <button onClick={() => { fetch('/api/radio/ps', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Enabled: false, Auto: false, Single: false }) }).then(() => { setPsEnabled(false); setPsStatus('PS uit') }) }}
+              <button onClick={() => { fetch('/api/tx/ps', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Enabled: false, Auto: false, Single: false }) }).then(() => { setPsEnabled(false); setPsStatus('PS uit') }) }}
                 style={{ fontSize: 10, padding: '3px 12px', borderRadius: 3, cursor: 'pointer', background: !psEnabled ? 'var(--bg-control)' : 'var(--bg-control)', border: '1px solid var(--border)', color: !psEnabled ? 'var(--text)' : 'var(--text-dim)' }}>UIT</button>
             </div>
 
             {/* Single calibratie */}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <span style={{ fontSize: 10, color: 'var(--text-dim)', minWidth: 80 }}>KALIBREER</span>
-              <button onClick={() => fetch('/api/radio/ps', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Enabled: true, Auto: false, Single: true }) })}
+              <button onClick={() => fetch('/api/tx/ps', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Enabled: true, Auto: false, Single: true }) })}
                 style={{ fontSize: 10, padding: '3px 12px', borderRadius: 3, cursor: 'pointer', background: 'var(--bg-control)', border: '1px solid var(--accent)', color: 'var(--accent)' }}>EENMALIG</button>
-              <button onClick={() => fetch('/api/radio/ps/reset', { method: 'POST' })}
+              <button onClick={() => fetch('/api/tx/ps/reset', { method: 'POST' })}
                 style={{ fontSize: 10, padding: '3px 12px', borderRadius: 3, cursor: 'pointer', background: 'var(--bg-control)', border: '1px solid var(--border)', color: 'var(--text-dim)' }}>RESET</button>
             </div>
 
             {/* Monitor */}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <span style={{ fontSize: 10, color: 'var(--text-dim)', minWidth: 80 }}>TX MONITOR</span>
-              <button onClick={() => fetch('/api/radio/ps/monitor', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Enabled: true }) })}
+              <button onClick={() => fetch('/api/tx/ps/monitor', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Enabled: true }) })}
                 style={{ fontSize: 10, padding: '3px 12px', borderRadius: 3, cursor: 'pointer', background: 'var(--bg-control)', border: '1px solid var(--accent)', color: 'var(--accent)' }}>POST-PA</button>
-              <button onClick={() => fetch('/api/radio/ps/monitor', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Enabled: false }) })}
+              <button onClick={() => fetch('/api/tx/ps/monitor', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Enabled: false }) })}
                 style={{ fontSize: 10, padding: '3px 12px', borderRadius: 3, cursor: 'pointer', background: 'var(--bg-control)', border: '1px solid var(--border)', color: 'var(--text-dim)' }}>NORMAAL</button>
               <span style={{ fontSize: 9, color: 'var(--text-dim)' }}>TX spectrum bron</span>
             </div>
@@ -161,7 +161,7 @@ export function SettingsModal({ onClose }: Props) {
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <span style={{ fontSize: 10, color: 'var(--text-dim)', minWidth: 80 }}>FEEDBACK ATT</span>
               {[-6,-3,0,3,6,9,12].map(db => (
-                <button key={db} onClick={() => fetch('/api/radio/ps/feedback-attenuation', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Db: db }) })}
+                <button key={db} onClick={() => fetch('/api/tx/ps/feedback-attenuation', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Db: db }) })}
                   style={{ fontSize: 9, padding: '2px 6px', borderRadius: 3, cursor: 'pointer', background: 'var(--bg-control)', border: '1px solid var(--border)', color: 'var(--text-dim)' }}>{db}dB</button>
               ))}
             </div>
@@ -169,9 +169,9 @@ export function SettingsModal({ onClose }: Props) {
             {/* Save/Restore */}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <span style={{ fontSize: 10, color: 'var(--text-dim)', minWidth: 80 }}>CALIBRATIE</span>
-              <button onClick={() => fetch('/api/radio/ps/save', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Filename: 'ps-cal.bin' }) })}
+              <button onClick={() => fetch('/api/tx/ps/save', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Filename: 'ps-cal.bin' }) })}
                 style={{ fontSize: 10, padding: '3px 12px', borderRadius: 3, cursor: 'pointer', background: 'var(--bg-control)', border: '1px solid var(--accent)', color: 'var(--accent)' }}>OPSLAAN</button>
-              <button onClick={() => fetch('/api/radio/ps/restore', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Filename: 'ps-cal.bin' }) })}
+              <button onClick={() => fetch('/api/tx/ps/restore', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ Filename: 'ps-cal.bin' }) })}
                 style={{ fontSize: 10, padding: '3px 12px', borderRadius: 3, cursor: 'pointer', background: 'var(--bg-control)', border: '1px solid var(--border)', color: 'var(--text-dim)' }}>HERSTELLEN</button>
             </div>
 
@@ -245,7 +245,7 @@ export function SettingsModal({ onClose }: Props) {
               ))}
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => { fetch('/api/radio/cfc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config: { enabled: cfcEnabled, postEqEnabled: cfcPostEq, preCompDb: cfcPreComp, prePeqDb: cfcPrePeq, bands: cfcBands } }) }).then(() => { setCfcStatus('ok'); setTimeout(() => setCfcStatus(''), 2000) }).catch(() => setCfcStatus('err')) }} style={{ fontSize: 10, padding: '3px 16px', borderRadius: 3, cursor: 'pointer', background: cfcStatus === 'ok' ? '#2ecc71' : cfcStatus === 'err' ? '#e74c3c' : 'var(--accent)', border: 'none', color: cfcStatus ? '#000' : 'var(--bg)' }}>{cfcStatus === 'ok' ? 'OPGESLAGEN ✓' : cfcStatus === 'err' ? 'FOUT ✗' : 'OPSLAAN'}</button>
+              <button onClick={() => { fetch('/api/cfc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config: { enabled: cfcEnabled, postEqEnabled: cfcPostEq, preCompDb: cfcPreComp, prePeqDb: cfcPrePeq, bands: cfcBands } }) }).then(() => { setCfcStatus('ok'); setTimeout(() => setCfcStatus(''), 2000) }).catch(() => setCfcStatus('err')) }} style={{ fontSize: 10, padding: '3px 16px', borderRadius: 3, cursor: 'pointer', background: cfcStatus === 'ok' ? '#2ecc71' : cfcStatus === 'err' ? '#e74c3c' : 'var(--accent)', border: 'none', color: cfcStatus ? '#000' : 'var(--bg)' }}>{cfcStatus === 'ok' ? 'OPGESLAGEN ✓' : cfcStatus === 'err' ? 'FOUT ✗' : 'OPSLAAN'}</button>
               <button onClick={() => { setCfcBands(CFC_FREQS.map(f => ({ freqHz: f, compLevelDb: 0, postGainDb: 0 }))); setCfcPreComp(0); setCfcPrePeq(0) }} style={{ fontSize: 10, padding: '3px 16px', borderRadius: 3, cursor: 'pointer', background: 'var(--bg-control)', border: '1px solid var(--border)', color: 'var(--text-dim)' }}>RESET</button>
             </div>
             <div style={{ fontSize: 9, color: 'var(--text-dim)', marginTop: 8 }}>CFC = Continuous Frequency Compressor (WDSP)</div>
@@ -429,11 +429,11 @@ export function SettingsModal({ onClose }: Props) {
                   const meas = parseFloat((document.getElementById('cal-meas') as HTMLInputElement).value)
                   if (!ref || !meas) return
                   const factor = ref / meas
-                  await fetch('/api/radio/frequency-calibration/set', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ factor }) })
+                  await fetch('/api/frequency-calibration/set', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ factor }) })
                   setCalFactor(factor)
                 }} style={{ fontSize: 10, padding: '2px 10px', borderRadius: 3, cursor: 'pointer', background: 'var(--accent)', border: 'none', color: 'var(--bg)', fontFamily: 'var(--font-data)' }}>CALIBRATE</button>
                 <button onClick={async () => {
-                  await fetch('/api/radio/frequency-calibration/set', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ factor: 1.0 }) })
+                  await fetch('/api/frequency-calibration/set', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ factor: 1.0 }) })
                   setCalFactor(1.0)
                 }} style={{ fontSize: 10, padding: '2px 10px', borderRadius: 3, cursor: 'pointer', background: 'var(--bg-control)', border: '1px solid var(--border)', color: 'var(--text-dim)', fontFamily: 'var(--font-data)' }}>RESET</button>
                 <span style={{ fontSize: 10, color: 'var(--text-dim)', fontFamily: 'var(--font-data)' }}>factor: {calFactor.toFixed(8)}</span>

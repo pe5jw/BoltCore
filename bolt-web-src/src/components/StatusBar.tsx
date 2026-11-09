@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { SettingsModal } from './SettingsModal'
 import type { ConnectionStatus } from '../ws/useRadioSocket'
 
@@ -34,6 +34,34 @@ export function StatusBar({ status, radioName, connectedIp, onConnect, onDisconn
   const [activeEndpoint, setActiveEndpoint] = useState<string | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [preferredMac, setPreferredMac] = useState<string>('')
+  const autoOpenedRef = useRef(false)
+
+  // Auto-open radio picker bij opstarten als niet verbonden (zelfde gedrag als AnanCore)
+  useEffect(() => {
+    if (autoOpenedRef.current) return
+    autoOpenedRef.current = true
+    fetch('/api/state').then(r => r.json()).then(state => {
+      const isConnected = state.connectionStatus === 'Connected' || state.status === 'Connected'
+      if (!isConnected) {
+        setShowPicker(true)
+        const saved = loadR()
+        setRadios(saved)
+        if (saved.length === 0) {
+          setScanning(true)
+          fetch('/api/radios').then(r => r.json()).then(res => {
+            const scanned: DiscoveredRadio[] = res.map((r: any) => ({ ip: r.ipAddress ?? r.ip, mac: r.macAddress ?? r.mac ?? '', board: r.boardId ?? r.board ?? 'HermesLite 2', firmware: r.firmwareVersion ?? r.firmware ?? '', busy: r.busy ?? false }))
+            let merged = loadR()
+            scanned.forEach(r => { merged = mergeR(merged, r) })
+            saveR(merged)
+            setRadios(merged)
+          }).catch(() => {}).finally(() => setScanning(false))
+        }
+      }
+    }).catch(() => {
+      setShowPicker(true)
+      setRadios(loadR())
+    })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const labels: Record<ConnectionStatus, string> = {
     disconnected: 'Disconnected',
@@ -51,13 +79,13 @@ export function StatusBar({ status, radioName, connectedIp, onConnect, onDisconn
     setShowPicker(true)
     setRadios(loadR())
     try {
-      const state = await fetch('/api/radio/state').then(r => r.json()).catch(() => null)
+      const state = await fetch('/api/state').then(r => r.json()).catch(() => null)
       if (state?.endpoint) { setActiveEndpoint(state.endpoint); localStorage.setItem('bolt-sdr-last-ip', state.endpoint) }
       else if (state?.status !== 'Connected') setActiveEndpoint(null)
-      // Load preferred MAC from autoconnect settings
+      // Note: /api/autoconnect bestaat niet in AnanCore — preferredMac uit localStorage
       try {
-        const ac = await fetch('/api/radio/autoconnect').then(r => r.json()).catch(() => null)
-        if (ac?.preferredMac) setPreferredMac(ac.preferredMac)
+        const savedMac = localStorage.getItem('bolt-sdr-preferred-mac')
+        if (savedMac) setPreferredMac(savedMac)
       } catch {}
     } catch {}
   }
@@ -65,7 +93,7 @@ export function StatusBar({ status, radioName, connectedIp, onConnect, onDisconn
   const scan = async () => {
     setScanning(true)
     try {
-      const res = await fetch('/api/radio/discover').then(r => r.json())
+      const res = await fetch('/api/radios').then(r => r.json())
       const scanned: DiscoveredRadio[] = res.map((r: any) => ({ ip: r.ipAddress ?? r.ip, mac: r.macAddress ?? r.mac, board: r.boardId ?? r.board, firmware: r.firmwareVersion ?? r.firmware, busy: r.busy ?? false }))
       let saved = loadR()
       scanned.forEach(r => { saved = mergeR(saved, r) })
@@ -81,7 +109,7 @@ export function StatusBar({ status, radioName, connectedIp, onConnect, onDisconn
       // Try direct probe first; fall back to adding as unknown
       let radio: DiscoveredRadio
       try {
-        const probeRes = await fetch('/api/radio/discover/direct', {
+        const probeRes = await fetch('/api/radios/probe', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ip: manualIp }),
@@ -114,7 +142,7 @@ export function StatusBar({ status, radioName, connectedIp, onConnect, onDisconn
   }
 
   const disconnect = async () => {
-    await fetch('/api/radio/disconnect', { method: 'POST' })
+    await fetch('/api/disconnect', { method: 'POST' })
     onDisconnect()
   }
 
@@ -179,7 +207,7 @@ export function StatusBar({ status, radioName, connectedIp, onConnect, onDisconn
                   onClick={async () => {
                     if (r.busy) return
                     if (status === 'connected') {
-                      await fetch('/api/radio/disconnect', { method: 'POST' })
+                      await fetch('/api/disconnect', { method: 'POST' })
                       setActiveEndpoint(null)
                       onDisconnect()
                       await new Promise(res => setTimeout(res, 1000))
@@ -207,7 +235,8 @@ export function StatusBar({ status, radioName, connectedIp, onConnect, onDisconn
                       e.stopPropagation()
                       const mac = r.mac.replace(/:/g, '').toUpperCase()
                       const newMac = preferredMac === mac ? '' : mac
-                      await fetch('/api/radio/autoconnect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ Enabled: true, PreferredMac: newMac }) })
+                      // Preferred MAC opslaan in localStorage (AnanCore heeft geen /api/autoconnect)
+                      localStorage.setItem('bolt-sdr-preferred-mac', newMac)
                       setPreferredMac(newMac)
                     }} title={preferredMac === r.mac.replace(/:/g,'').toUpperCase() ? 'Clear preferred' : 'Set as preferred for autoconnect'} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, padding: '0 2px', color: preferredMac === r.mac.replace(/:/g,'').toUpperCase() ? 'var(--accent)' : 'var(--text-dim)' }}>★</button>}
                     <button onClick={e => { e.stopPropagation(); removeRadio(r.ip) }} style={{ background: 'none', border: 'none', color: '#c0392b', cursor: 'pointer', fontSize: 14, padding: '0 4px' }}>✕</button>
@@ -230,8 +259,8 @@ export function StatusBar({ status, radioName, connectedIp, onConnect, onDisconn
           {preferredMac && (
             <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 10, color: 'var(--accent)', fontFamily: 'var(--font-data)' }}>★ {preferredMac}</span>
-              <button onClick={async () => {
-                await fetch('/api/radio/autoconnect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ Enabled: true, PreferredMac: '' }) })
+              <button onClick={() => {
+                localStorage.removeItem('bolt-sdr-preferred-mac')
                 setPreferredMac('')
               }} style={{ background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: 10, cursor: 'pointer', fontFamily: 'var(--font-data)' }}>clear</button>
             </div>

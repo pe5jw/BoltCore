@@ -4,30 +4,30 @@
 
 export const API = {
   // Radio state
-  STATE:          '/api/radio/state',
+  STATE:          '/api/state',
 
   // VFO / Tuning
-  VFO:            '/api/radio/vfo',
-  MODE:           '/api/radio/mode',
-  FILTER:         '/api/radio/filter',
-  ZOOM:           '/api/radio/zoom',
+  VFO:            '/api/vfo',
+  MODE:           '/api/mode',
+  FILTER:         '/api/filter',
+  ZOOM:           '/api/zoom',
 
   // TX
-  MOX:            '/api/radio/mox',
-  TUNE:           '/api/radio/tune',
-  DRIVE:          '/api/radio/drive',
-  MIC_GAIN:       '/api/radio/mic-gain',
+  MOX:            '/api/tx/mox',
+  TUNE:           '/api/tx/tun',
+  DRIVE:          '/api/tx/drive',
+  MIC_GAIN:       '/api/tx/mic-gain',
 
   // RX
-  RX_AF_GAIN:     '/api/radio/rx-af-gain',
-  AGC_TOP:        '/api/radio/agc-top',
-  ATTEN:          '/api/radio/atten',
-  SQUELCH:        '/api/radio/squelch',
+  RX_AF_GAIN:     '/api/rx/af-gain',
+  AGC_TOP:        '/api/agc-top',
+  ATTEN:          '/api/atten',
+  SQUELCH:        '/api/squelch',
 
   // Verbinding
-  CONNECT:        '/api/radio/connect',
-  DISCONNECT:     '/api/radio/disconnect',
-  DISCOVER:       '/api/radio/discover',
+  CONNECT:        '/api/connect',
+  DISCONNECT:     '/api/disconnect',
+  DISCOVER:       '/api/radios',
 
   // Display
 

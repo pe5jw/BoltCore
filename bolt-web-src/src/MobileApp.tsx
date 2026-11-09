@@ -161,7 +161,7 @@ export default function MobileApp() {
 
   // ── Init: fetch state / auto-reconnect ──────────────────────────────────
   useEffect(() => {
-    fetch('/api/radio/state').then(r => r.json()).then(state => {
+    fetch('/api/state').then(r => r.json()).then(state => {
       if (state.status === 'Connected' && state.endpoint) {
         setConnectedIp(state.endpoint)
       } else {
@@ -170,7 +170,7 @@ export default function MobileApp() {
         const lastIp = localStorage.getItem('bolt-sdr-last-ip')
         if (lastIp) {
           setConnectedIp(lastIp)
-          fetch('/api/radio/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: lastIp }) }).catch(() => {})
+          fetch('/api/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: lastIp }) }).catch(() => {})
         }
       }
     }).catch(() => {})
@@ -180,49 +180,49 @@ export default function MobileApp() {
   const sendVfo = useCallback((hz: number, isBand = false) => {
     setRadioState(s => ({ ...s, vfoHz: hz }))
     send({ type: 'set_vfo', hz })
-    fetch('/api/radio/vfo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hz, isBand }) }).catch(() => {})
+    fetch('/api/vfo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hz, isBand }) }).catch(() => {})
   }, [send, setRadioState])
 
   const sendMode = useCallback((mode: string) => {
     const [low, high] = MODE_DEFAULTS[mode] ?? [200, 3200]
     setRadioState(s => ({ ...s, mode, filterLow: low, filterHigh: high }))
     send({ type: 'set_mode', mode })
-    fetch('/api/radio/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }) }).catch(() => {})
-    fetch('/api/radio/filter', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lowHz: low, highHz: high, receiver: 0 }) }).catch(() => {})
+    fetch('/api/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }) }).catch(() => {})
+    fetch('/api/filter', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lowHz: low, highHz: high, receiver: 0 }) }).catch(() => {})
   }, [send, setRadioState])
 
   const startPtt = useCallback(() => {
     if (pttRef.current) return
     pttRef.current = true; setPttActive(true)
     setRadioState(s => ({ ...s, mox: true })); setMoxActive(true)
-    fetch('/api/radio/mox', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ On: true }) }).catch(() => {})
+    fetch('/api/tx/mox', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ On: true }) }).catch(() => {})
   }, [setRadioState, setMoxActive])
 
   const stopPtt = useCallback(() => {
     if (!pttRef.current) return
     pttRef.current = false; setPttActive(false)
     setRadioState(s => ({ ...s, mox: false })); setMoxActive(false)
-    fetch('/api/radio/mox', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ On: false }) }).catch(() => {})
+    fetch('/api/tx/mox', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ On: false }) }).catch(() => {})
   }, [setRadioState, setMoxActive])
 
   const sendCw = useCallback((text: string) => {
     const resolved = text.replace('{CALL}', myCall)
-    fetch('/api/radio/cw', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: resolved }) }).catch(() => {})
+    fetch('/api/cw/key', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: resolved }) }).catch(() => {})
   }, [myCall])
 
   const stopCw = useCallback(() => {
-    fetch('/api/radio/cw-stop', { method: 'POST' }).catch(() => {})
+    fetch('/api/cw/abort', { method: 'POST' }).catch(() => {})
   }, [])
 
   // ── Volume effect ───────────────────────────────────────────────────────
   useEffect(() => {
-    fetch('/api/radio/rx-af-gain', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ db: Math.round(-50 + (volume / 100) * 70) }) }).catch(() => {})
+    fetch('/api/rx/af-gain', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ db: Math.round(-50 + (volume / 100) * 70) }) }).catch(() => {})
     localStorage.setItem('bolt-volume', String(volume))
   }, [volume])
 
   useEffect(() => {
     localStorage.setItem('bolt-cw-speed', String(cwSpeed))
-    fetch('/api/radio/cw-speed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ wpm: cwSpeed }) }).catch(() => {})
+    fetch('/api/cw/speed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ wpm: cwSpeed }) }).catch(() => {})
   }, [cwSpeed])
 
   // ── Derived ─────────────────────────────────────────────────────────────
@@ -359,14 +359,14 @@ export default function MobileApp() {
                     <button onClick={() => {
                       const en = !radioState.squelchEnabled
                       setRadioState(s => ({ ...s, squelchEnabled: en }))
-                      fetch('/api/radio/squelch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: en, level: radioState.squelchLevel ?? 0 }) }).catch(() => {})
+                      fetch('/api/squelch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: en, level: radioState.squelchLevel ?? 0 }) }).catch(() => {})
                     }} style={{ background: radioState.squelchEnabled ? C.accentDim : C.control, border: `1px solid ${radioState.squelchEnabled ? C.accentBdr : C.border}`, color: radioState.squelchEnabled ? C.accent : C.dim2, borderRadius: 4, padding: '2px 8px', fontSize: 10, cursor: 'pointer', letterSpacing: 1 }}>
                       {radioState.squelchEnabled ? 'ON' : 'OFF'}
                     </button>
                   </div>
                 </div>
                 <input type="range" min={0} max={100} value={radioState.squelchLevel ?? 0}
-                  onChange={e => { const v = Number(e.target.value); setRadioState(s => ({ ...s, squelchLevel: v })); fetch('/api/radio/squelch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: radioState.squelchEnabled, level: v }) }).catch(() => {}) }}
+                  onChange={e => { const v = Number(e.target.value); setRadioState(s => ({ ...s, squelchLevel: v })); fetch('/api/squelch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: radioState.squelchEnabled, level: v }) }).catch(() => {}) }}
                   style={{ width: '100%', accentColor: C.accent }} />
               </div>
 
@@ -380,8 +380,8 @@ export default function MobileApp() {
                   txFilterLocked={radioState.txFilterLocked}
                   sidetoneHz={JSON.parse(localStorage.getItem('bolt-cw-settings') || '{"sidetoneHz":600}').sidetoneHz ?? 600}
                   onMode={sendMode}
-                  onFilter={(low, high) => { setRadioState(s => ({ ...s, filterLow: low, filterHigh: high })); fetch('/api/radio/filter', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lowHz: low, highHz: high, receiver: 0 }) }).catch(() => {}) }}
-                  onTxFilter={(low, high) => { setRadioState(s => ({ ...s, txFilterLow: low, txFilterHigh: high })); fetch('/api/radio/tx-filter', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ low, high }) }).catch(() => {}) }}
+                  onFilter={(low, high) => { setRadioState(s => ({ ...s, filterLow: low, filterHigh: high })); fetch('/api/filter', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lowHz: low, highHz: high, receiver: 0 }) }).catch(() => {}) }}
+                  onTxFilter={(low, high) => { setRadioState(s => ({ ...s, txFilterLow: low, txFilterHigh: high })); fetch('/api/tx/filter', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ low, high }) }).catch(() => {}) }}
                   onTxFilterLock={(locked) => setRadioState(s => ({ ...s, txFilterLocked: locked }))} />
               </div>
 
@@ -411,10 +411,10 @@ export default function MobileApp() {
               )}
 
               <SliderRow label="Drive" unit="%" min={0} max={100} value={radioState.driveDb ?? 0}
-                onChange={v => { setRadioState(s => ({ ...s, driveDb: v })); fetch('/api/radio/drive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ percent: v }) }).catch(() => {}) }} />
+                onChange={v => { setRadioState(s => ({ ...s, driveDb: v })); fetch('/api/tx/drive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ percent: v }) }).catch(() => {}) }} />
 
               <SliderRow label="Mic Gain" unit=" dB" min={-20} max={20} value={radioState.micGainDb ?? 0}
-                onChange={db => { setRadioState(s => ({ ...s, micGainDb: db })); fetch('/api/radio/mic-gain', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ db }) }).catch(() => {}) }} />
+                onChange={db => { setRadioState(s => ({ ...s, micGainDb: db })); fetch('/api/tx/mic-gain', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ db }) }).catch(() => {}) }} />
 
               {/* CW section — shown in CW/CWL mode */}
               {isCwMode && (
@@ -480,7 +480,7 @@ export default function MobileApp() {
                     return (
                       <button key={m} onClick={() => {
                         setRadioState(s => ({ ...s, agcMode: m }))
-                        fetch('/api/radio/agc-top', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agc: { mode: m, slope: null, decayMs: null, hangMs: null, hangThreshold: null, fixedGainDb: null } }) }).catch(() => {})
+                        fetch('/api/agc-top', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agc: { mode: m, slope: null, decayMs: null, hangMs: null, hangThreshold: null, fixedGainDb: null } }) }).catch(() => {})
                       }} style={{
                         padding: '9px 18px', borderRadius: 5, cursor: 'pointer', fontSize: 13, fontWeight: active ? 700 : 400,
                         background: active ? C.accent : C.control,
@@ -493,7 +493,7 @@ export default function MobileApp() {
               </div>
 
               <SliderRow label="Attenuation" unit=" dB" min={0} max={48} value={radioState.attDb ?? 0}
-                onChange={db => { setRadioState(s => ({ ...s, attDb: db })); fetch('/api/radio/atten', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ db }) }).catch(() => {}) }} />
+                onChange={db => { setRadioState(s => ({ ...s, attDb: db })); fetch('/api/atten', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ db }) }).catch(() => {}) }} />
 
               <div>
                 <SectionLabel>Noise Reduction</SectionLabel>
@@ -505,7 +505,7 @@ export default function MobileApp() {
                       <button key={nr} onClick={() => {
                         const mode = nr === 'Off' ? 'Off' : apiMode
                         setRadioState(s => ({ ...s, nrMode: mode }))
-                        fetch('/api/radio/agc-top', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nr: { nrMode: mode, anfEnabled: nr === 'ANF', snbEnabled: false, nbMode: 'Off', nbThreshold: 20, nbpNotchesEnabled: false } }) }).catch(() => {})
+                        fetch('/api/agc-top', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nr: { nrMode: mode, anfEnabled: nr === 'ANF', snbEnabled: false, nbMode: 'Off', nbThreshold: 20, nbpNotchesEnabled: false } }) }).catch(() => {})
                       }} style={{
                         flex: 1, padding: '9px 0', borderRadius: 5, cursor: 'pointer', fontSize: 13,
                         background: active ? C.accentDim : C.control,
